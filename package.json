@@ -1,0 +1,15 @@
+{
+  "name": "alabaster-arm64",
+  "version": "0.5.0",
+  "main": "menu/index.html",
+  "chromium-args": "--ignore-gpu-blacklist --force-device-scale-factor=1 --force_high_performance_gpu --disable-direct-composition --disable-background-networking --enable-experimental-web-platform-features --disable-features=Vulkan",
+  "window": {
+    "icon": "terra/page/img/favicon.png",
+    "id": "terraGame",
+    "width": 1280,
+    "height": 720
+  },
+  "icons": {
+    "256": "terra/page/img/favicon.png"
+  }
+}

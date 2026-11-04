@@ -1,0 +1,14 @@
+dist/
+__pycache__/
+*.pyc
+*.o
+*.arm64
+*.tar.gz
+profile/
+runtime/
+logs/
+cloud-test/
+source-audit/
+downloads/
+save-backups/
+cloud-backups/

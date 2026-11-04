@@ -1,0 +1,8 @@
+# Credits and third-party components
+
+- **Radical Fish Games:** Alabaster Dawn, its title, characters, logo and original artwork. The menu includes game artwork and derived ARM64 title/library graphics. These assets retain their original rights and are not licensed as launcher code. This project is unofficial and is not endorsed by Radical Fish Games or Valve.
+- **Android wrapper inspiration:** [moronigranja/alabaster-android](https://github.com/moronigranja/alabaster-android) and [AerithMetiq/AlabasterDawnBox](https://github.com/AerithMetiq/AlabasterDawnBox). The Linux launcher uses NW.js and the running desktop Steam client; it does not bundle either Android app or its JavaSteam login implementation.
+- **NW.js authors and Chromium contributors:** [NW.js](https://nwjs.io/) supplies the native ARM64 runtime. Setup downloads version 0.119.2 directly from `dl.nwjs.io` and verifies its pinned SHA-256. The runtime is not mirrored in this release. [NW.js source and license](https://github.com/nwjs/nw.js). The downloaded build's `credits.html` is a placeholder, so complete dependency-notice coverage has not been verified.
+- **Noto contributors:** the five bundled fonts use SIL Open Font License 1.1. Copyright notices, license text, upstream links and font checksums are retained under [src/menu/assets/fonts](src/menu/assets/fonts).
+
+No project-wide open-source license has been selected for this private prerelease. Third-party licenses apply to their respective components; they do not grant rights to the game or its artwork. No separate artwork redistribution permission is recorded.

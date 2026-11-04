@@ -1,0 +1,24 @@
+Bundled launcher fonts
+
+All five font files are unmodified copies of the corresponding files under
+/usr/share/fonts/noto on the packaging host. Each font's embedded name-table
+records identify SIL Open Font License 1.1 and the copyright notices reproduced
+in LICENSE.txt. The host package's Apache-2.0 LICENSE file does not describe
+these font files and is not used as their license.
+
+NotoSans-Regular.ttf, NotoSans-Bold.ttf, NotoSerif-Regular.ttf:
+https://github.com/notofonts/latin-greek-cyrillic
+
+NotoSansSymbols-Regular.ttf, NotoSansSymbols2-Regular.ttf:
+https://github.com/notofonts/symbols
+
+The full OFL 1.1 license text in LICENSE.txt is the standard license text
+available locally at /usr/share/licenses/deckard-boot-images/OFL.txt; its
+font-independent text is reproduced with the Noto files' own embedded notices.
+
+SHA-256
+478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823  NotoSans-Regular.ttf
+1df075a380fc7cb898acf64c1f7b3b4dd780de3caa860178bf929de35817a913  NotoSans-Bold.ttf
+19e72cd8d595fae5bd74a5206f5d938512e1183d4fed7abb1ec1be1d7efa5f88  NotoSerif-Regular.ttf
+d0e98e9a2c046594c5021437273943be7e79e0fd980fde125279e22302212595  NotoSansSymbols-Regular.ttf
+c4a0a80f0041ce4be81e2478faad22776d23edb98ae3f0d19bd37044820ecf9d  NotoSansSymbols2-Regular.ttf

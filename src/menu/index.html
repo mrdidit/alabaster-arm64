@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Alabaster Dawn</title>
+  <link rel="stylesheet" href="menu.css">
+  <script src="backend.js" defer></script>
+  <script src="menu.js" defer></script>
+</head>
+<body>
+  <div class="artwork" aria-hidden="true"></div>
+  <div class="scrim" aria-hidden="true"></div>
+  <main class="launcher" id="home">
+    <header class="arm64-title"><img id="arm64-title" src="assets/title-arm64.png" alt="Alabaster ARM64"></header>
+
+    <nav class="main-menu" aria-label="Launcher">
+      <button id="play" class="menu-button primary" data-action="play" disabled>
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></svg></span>
+        <span class="button-copy"><span id="play-title" class="button-title">Play Alabaster Dawn</span></span>
+        <span class="button-arrow" aria-hidden="true">↗</span>
+      </button>
+      <button id="open-sync" class="menu-button" data-action="open-sync" disabled>
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h15m-4-4 4 4-4 4M20 16H5m4-4-4 4 4 4"/></svg></span>
+        <span class="button-copy"><span class="button-title">Local saves</span></span>
+        <span class="button-arrow" aria-hidden="true">›</span>
+      </button>
+      <button id="open-cloud" class="menu-button" data-action="open-cloud" disabled>
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18H6a4 4 0 0 1-.6-7.95 6.5 6.5 0 0 1 12.3-1.7A4.8 4.8 0 0 1 18 18h-1M12 20V10m-3 3 3-3 3 3"/></svg></span>
+        <span class="button-copy"><span class="button-title">Cloud sync</span></span>
+        <span class="button-arrow" aria-hidden="true">›</span>
+      </button>
+      <button id="options" class="menu-button" data-action="options" disabled>
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-7 0v6"/></svg></span>
+        <span class="button-copy"><span class="button-title">Options</span></span>
+        <span class="button-arrow" aria-hidden="true">›</span>
+      </button>
+      <button id="exit" class="menu-button quiet" data-action="exit" disabled>
+        <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 4H5v16h5m4-12 4 4-4 4m-5-4h10"/></svg></span>
+        <span class="button-copy"><span class="button-title">Exit</span></span>
+      </button>
+    </nav>
+    <header class="brand">
+      <img id="game-logo" class="game-logo" src="assets/logo.png" alt="Alabaster Dawn">
+      <h1 id="logo-fallback" class="logo-fallback" hidden>Alabaster <span>Dawn</span></h1>
+    </header>
+
+    <section class="save-summary" aria-label="Local save status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="save-status">Checking local saves…</span>
+    </section>
+    <p id="home-notice" class="home-notice" role="status" aria-live="polite"></p>
+    <footer class="control-hints" aria-label="Controls">
+      <span><kbd class="pad-key">A</kbd><kbd>Enter</kbd> Select</span>
+      <span><kbd class="pad-key">B</kbd><kbd>Esc</kbd> Back</span>
+      <span class="navigation-hint"><span aria-hidden="true">↕</span> Navigate</span>
+    </footer>
+  </main>
+
+  <div id="dialog-layer" class="dialog-layer" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description" tabindex="-1">
+      <header class="dialog-heading">
+        <p class="eyebrow" id="dialog-kicker">Local saves</p>
+        <h2 id="dialog-title">Sync local saves</h2>
+        <p id="dialog-description">Choose which copy to use. Nothing changes until you confirm.</p>
+      </header>
+
+      <div id="sync-view" class="dialog-view" hidden>
+        <div class="save-toolbar">
+          <div class="save-tabs" role="tablist" aria-label="Save source">
+            <button id="tab-arm64" data-action="source" data-source="arm64" role="tab" aria-selected="true" aria-controls="save-source-panel">Show ARM64</button>
+            <button id="tab-steam" data-action="source" data-source="steam" role="tab" aria-selected="false" aria-controls="save-source-panel">Show Steam</button>
+          </div>
+          <span id="viewing-source">Viewing ARM64 saves</span>
+        </div>
+        <div id="save-source-panel" role="tabpanel" aria-labelledby="tab-arm64">
+          <fieldset class="slot-picker"><legend>Choose saves</legend>
+            <div class="slot-grid" role="group" aria-label="Save slot selection">
+              <button class="slot-button" data-action="slot" data-slot="all" aria-pressed="false" disabled><b>All</b><span class="slot-date">All saves</span><span class="slot-time">+ autosave</span></button>
+              <button class="slot-button" data-action="slot" data-slot="auto" aria-pressed="false" disabled><b>Auto</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="1" aria-pressed="false" disabled><b>1</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="2" aria-pressed="false" disabled><b>2</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="3" aria-pressed="false" disabled><b>3</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="4" aria-pressed="false" disabled><b>4</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="5" aria-pressed="false" disabled><b>5</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="6" aria-pressed="false" disabled><b>6</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="7" aria-pressed="false" disabled><b>7</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="8" aria-pressed="false" disabled><b>8</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="9" aria-pressed="false" disabled><b>9</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            <button class="slot-button" data-action="slot" data-slot="10" aria-pressed="false" disabled><b>10</b><span class="slot-date">Empty</span><span class="slot-time"></span></button>
+            </div>
+          </fieldset>
+          <p id="source-issues" class="source-issues" role="status"></p>
+          <div class="selection-details">
+            <div class="save-dates-heading"><span id="selection-heading">No saves selected</span><span id="selected-source-label">ARM64</span><span id="selected-destination-label">Steam</span></div>
+            <div id="selection-dates" class="save-date-rows" aria-live="polite"></div>
+          </div>
+          <p id="slot-description">Select one or more slots. All includes the autosave.</p>
+        </div>
+        <div class="save-action-area">
+          <p id="save-restriction" class="save-restriction" role="status"></p>
+          <p id="copy-error" class="copy-error" role="alert" tabindex="-1"></p>
+          <div class="save-actions">
+            <button id="saves-back" class="action-button secondary" data-action="back">Back</button>
+            <button id="copy-selected" class="action-button confirm" data-action="preview" disabled>Copy selected (0) to Steam</button>
+          </div>
+        </div>
+        <footer class="save-controls"><span><kbd>LB</kbd><kbd>RB</kbd> Version</span><span><kbd>←</kbd><kbd>→</kbd> Slot</span><span><kbd>A</kbd> Select</span><span><kbd>B</kbd> Back</span><span>Local saves only</span></footer>
+      </div>
+
+      <div id="cloud-view" class="dialog-view" hidden>
+        <div class="cloud-status-card">
+          <p id="cloud-status" role="status" aria-live="polite">Checking Steam login…</p>
+          <p id="cloud-account" class="cloud-detail"></p>
+          <p id="cloud-last-sync" class="cloud-detail"></p>
+        </div>
+        <p class="local-only cloud-scope">Complete save sets, including the autosave. Nothing syncs automatically.</p>
+        <p id="cloud-error" class="copy-error" role="alert" tabindex="-1"></p>
+        <div class="direction-list cloud-directions">
+          <button id="cloud-download" class="direction-button" data-action="cloud-preview" data-direction="download" disabled><span>Download to ARM64</span></button>
+          <button id="cloud-upload" class="direction-button" data-action="cloud-preview" data-direction="upload" disabled><span>Upload ARM64 saves</span></button>
+        </div>
+        <p class="local-only">Steam Cloud is refreshed into the Steam save folder for review. ARM64 saves change only after confirmation.</p>
+        <div class="dialog-actions"><button id="cloud-back" class="action-button secondary" data-action="back">Back</button></div>
+      </div>
+
+      <div id="cloud-preview-view" class="dialog-view" hidden>
+        <div class="cloud-comparison">
+          <div><span class="field-label">From</span><h3 id="cloud-source-label"></h3><p id="cloud-source-date"></p></div>
+          <div><span class="field-label">To</span><h3 id="cloud-destination-label"></h3><p id="cloud-destination-date"></p></div>
+        </div>
+        <p id="cloud-file-count" class="local-only"></p>
+        <p id="cloud-overwrite-warning" class="overwrite-warning"></p>
+        <p id="cloud-preview-warning" class="cloud-detail"></p>
+        <div class="dialog-actions">
+          <button id="cancel-cloud" class="action-button secondary" data-action="cancel-cloud">Cancel</button>
+          <button id="confirm-cloud" class="action-button confirm" data-action="confirm-cloud">Confirm download</button>
+        </div>
+      </div>
+
+      <div id="preview-view" class="dialog-view" hidden>
+        <div class="preview-source-labels"><span id="preview-selection-label">Selected saves</span><span id="source-label">ARM64</span><span id="destination-label">Steam</span></div>
+        <div id="preview-entries" class="save-date-rows" aria-label="Selected save dates"></div>
+        <p id="preview-navigation" class="preview-navigation" hidden>↑↓ Review dates · ←→ Cancel / Copy</p>
+        <p id="overwrite-warning" class="overwrite-warning"></p>
+        <p id="copy-scope" class="local-only"></p>
+        <div class="dialog-actions">
+          <button id="cancel-copy" class="action-button secondary" data-action="cancel">Cancel</button>
+          <button id="confirm-copy" class="action-button confirm" data-action="confirm">Confirm copy</button>
+        </div>
+      </div>
+
+      <div id="busy-view" class="dialog-view" hidden>
+        <div class="busy-state"><span class="spinner" aria-hidden="true"></span><p id="busy-message">Checking saves…</p></div>
+        <progress id="operation-progress" max="100" hidden aria-label="Operation progress"></progress>
+      </div>
+
+      <div id="install-view" class="dialog-view" hidden>
+        <label class="field-label" for="game-path">Steam game folder</label>
+        <div class="path-picker"><input id="game-path" type="text" spellcheck="false" autocomplete="off"><button id="browse-game" class="action-button secondary" data-action="browse">Browse…</button></div>
+        <p id="install-detail" class="local-only">Choose the installed Alabaster Dawn Demo folder.</p>
+        <div class="dialog-actions"><button class="action-button secondary" data-action="back">Back</button><button id="confirm-install" class="action-button confirm" data-action="install">Install</button></div>
+      </div>
+
+      <div id="options-view" class="dialog-view" hidden>
+        <p id="installed-path" class="installed-path"></p>
+        <div class="direction-list">
+          <button id="add-to-steam" class="direction-button" data-action="add-to-steam">Add / update Steam entry</button>
+          <button id="open-controller" class="direction-button" data-action="open-controller">Controller emulation</button>
+          <button id="uninstall" class="direction-button" data-action="uninstall">Disconnect game files</button>
+          <button id="complete-uninstall" class="direction-button danger" data-action="complete-preview">Complete uninstall</button>
+        </div>
+        <p id="complete-uninstall-note" class="dialog-notice"></p>
+        <div class="dialog-actions"><button class="action-button secondary" data-action="back">Back</button></div>
+      </div>
+
+      <div id="controller-view" class="dialog-view" hidden>
+        <div class="controller-state" aria-live="polite">
+          <p><span class="field-label">Configured</span><strong id="controller-configured">Unknown</strong></p>
+          <p><span class="field-label">Live</span><strong id="controller-live">Unknown</strong></p>
+        </div>
+        <p class="local-only controller-scope">Changes Armada’s controller emulation across the device and stays set after reboot. Controls briefly reconnect; administrator approval may be requested.</p>
+        <p id="controller-status" class="cloud-detail" role="status"></p>
+        <div class="controller-choices" role="group" aria-label="Choose controller emulation">
+          <button id="controller-deck" class="direction-button" data-action="controller-choice" data-controller="deck-uhid" aria-pressed="false">Steam Deck</button>
+          <button id="controller-xbox" class="direction-button" data-action="controller-choice" data-controller="xb360" aria-pressed="false">Xbox 360</button>
+        </div>
+        <p id="controller-error" class="dialog-notice" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="controller-back" class="action-button secondary" data-action="back">Back</button>
+          <button id="controller-apply" class="action-button confirm" data-action="controller-apply" disabled>Apply</button>
+        </div>
+      </div>
+
+      <div id="uninstall-view" class="dialog-view" hidden>
+        <p class="overwrite-warning">Disconnect the game files from this launcher? The launcher, runtime, shortcuts, saved progress and original Steam game files will be kept.</p>
+        <div class="dialog-actions"><button id="cancel-uninstall" class="action-button secondary" data-action="cancel-uninstall">Cancel</button><button id="confirm-uninstall" class="action-button confirm" data-action="confirm-uninstall">Disconnect</button></div>
+      </div>
+
+      <div id="complete-preview-view" class="dialog-view" hidden>
+        <span class="field-label">This installation</span>
+        <p id="complete-installation-root" class="installed-path"></p>
+        <p class="local-only">Removes the launcher, runtime and its shortcuts. Keeps saved progress, backups and the original Steam game.</p>
+        <p id="complete-warnings" class="overwrite-warning save-date-rows" role="status" hidden></p>
+        <p id="complete-navigation" class="preview-navigation" hidden>↑↓ Review warnings · ←→ Cancel / Uninstall</p>
+        <div class="dialog-actions">
+          <button id="cancel-complete" class="action-button secondary" data-action="cancel-complete">Cancel</button>
+          <button id="confirm-complete" class="action-button confirm danger" data-action="confirm-complete">Complete uninstall</button>
+        </div>
+      </div>
+
+      <div id="result-view" class="dialog-view" hidden>
+        <p id="result-summary" class="result-summary"></p>
+        <div id="backup-details" class="backup-details" hidden><span class="field-label">Destination backup</span><p id="backup-value"></p></div>
+        <div class="dialog-actions"><button id="result-done" class="action-button confirm" data-action="done">Done</button></div>
+      </div>
+      <p id="dialog-notice" class="dialog-notice" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+</body>
+</html>
