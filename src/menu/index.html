@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Alabaster Dawn</title>
   <link rel="stylesheet" href="menu.css">
+  <script src="window.js" defer></script>
   <script src="backend.js" defer></script>
   <script src="menu.js" defer></script>
 </head>
@@ -214,6 +215,11 @@
       <div id="uninstall-view" class="dialog-view" hidden>
         <p class="overwrite-warning">Disconnect the game files from this launcher? The launcher, runtime, shortcuts, saved progress and original Steam game files will be kept.</p>
         <div class="dialog-actions"><button id="cancel-uninstall" class="action-button secondary" data-action="cancel-uninstall">Cancel</button><button id="confirm-uninstall" class="action-button confirm" data-action="confirm-uninstall">Disconnect</button></div>
+      </div>
+
+      <div id="operation-error-view" class="dialog-view" hidden>
+        <p id="operation-error" class="overwrite-warning" role="alert"></p>
+        <div class="dialog-actions"><button id="operation-error-back" class="action-button secondary" data-action="back">Back to Options</button></div>
       </div>
 
       <div id="complete-preview-view" class="dialog-view" hidden>

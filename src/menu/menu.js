@@ -5,7 +5,7 @@
   const home = byId("home");
   const layer = byId("dialog-layer");
   const dialog = layer.querySelector(".dialog");
-  const views = ["sync", "preview", "cloud", "cloud-preview", "busy", "result", "install", "options", "controller", "hud", "uninstall", "complete-preview"];
+  const views = ["sync", "preview", "cloud", "cloud-preview", "busy", "result", "install", "options", "controller", "hud", "uninstall", "complete-preview", "operation-error"];
   let screen = "home";
   let busy = false;
   let externalBusy = false;
@@ -364,7 +364,7 @@
     } else if (screen === "cloud-preview") {
       cloudPreview = null;
       showCloud();
-    } else if (["uninstall", "complete-preview", "controller", "hud"].includes(screen)) {
+    } else if (["uninstall", "complete-preview", "controller", "hud", "operation-error"].includes(screen)) {
       showOptions();
     } else if (screen !== "home") {
       preview = null;
@@ -781,10 +781,15 @@
       text("home-notice", "Game files disconnected. The launcher, runtime, shortcuts and saved progress were kept.");
     } catch (error) {
       if (disposed || token !== operation) return;
-      setBusy(false);
-      showOptions();
-      text("dialog-notice", message(error));
+      showUninstallError("Disconnect did not finish", error);
     }
+  }
+
+  function showUninstallError(title, error) {
+    console.error(title, error);
+    setBusy(false);
+    text("operation-error", message(error));
+    setView("operation-error", {title, kicker:"Alabaster ARM64", description:"", focus:byId("operation-error-back")});
   }
 
   async function prepareCompleteUninstall() {
@@ -811,9 +816,7 @@
       setView("complete-preview", {title:"Completely uninstall?", kicker:"This launcher only", description:"", focus:byId("cancel-complete")});
     } catch (error) {
       if (disposed || token !== operation) return;
-      setBusy(false);
-      showOptions();
-      text("dialog-notice", message(error));
+      showUninstallError("Uninstall could not start", error);
     }
   }
   async function completeUninstall() {
@@ -830,11 +833,8 @@
       text("busy-message", "Uninstall complete. Closing the launcher…");
     } catch (error) {
       if (disposed || token !== operation) return;
-      const failure = message(error);
       try { updateSetup(await api().setupStatus()); } catch { setup = null; }
-      setBusy(false);
-      showOptions();
-      text("dialog-notice", failure);
+      showUninstallError("Uninstall did not finish", error);
     }
   }
 

@@ -69,7 +69,11 @@ def build(output):
         (output/binary.name).chmod(0o755)
         package = output/'Alabaster-Dawn-Setup-linux-arm64.tar.gz'
         package.write_bytes(archive_bytes([(binary.name, final, 0o755)]))
-        hashes = {binary.name: hashlib.sha256(final).hexdigest(), package.name: hashlib.sha256(package.read_bytes()).hexdigest()}
+        installer = output/'install.sh'
+        installer.write_bytes((ROOT/'install.sh').read_bytes())
+        installer.chmod(0o755)
+        hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in (binary, package, installer)}
         (output/'SHA256SUMS').write_text(''.join(f'{value}  {name}\n' for name, value in hashes.items()))
         (output/'payload-files.json').write_text(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data, _ in entries}, indent=2)+'\n')
         print(json.dumps({'output': str(output), 'sha256': hashes, 'payload_sha256': payload_hash}, indent=2))

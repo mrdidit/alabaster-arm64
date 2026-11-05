@@ -8,10 +8,18 @@ Inspired by the Android wrappers [alabaster-android](https://github.com/moronigr
 
 1. Switch to **Desktop Mode**, open Steam and install the full game's **Linux version**. Installing the game in Gaming Mode also works; open Steam in Desktop Mode before continuing.
 2. Download and extract **Alabaster-Dawn-Setup-linux-arm64.tar.gz** from [Releases](https://github.com/mrdidit/alabaster-arm64/releases).
-3. Open **Alabaster-Dawn-Setup.arm64**. Setup opens full screen and downloads and checks the required runtime automatically.
+3. Open **Alabaster-Dawn-Setup.arm64**. Setup and the launcher open maximized. If Steam is closed, choose **Start Steam**, **Continue without Steam** or **Cancel**. Setup downloads and checks the required runtime automatically.
 4. Choose **Install**, confirm the detected game folder, then **Play Alabaster Dawn**.
 
 Keep Steam open to add the ARM64 library entry and artwork. Setup also creates desktop and application-menu entries. Installation can continue without Steam; follow the warning and use **Options → Add / update Steam entry** once Steam is open. After setup, play from either mode.
+
+Or open a terminal in Desktop Mode and run:
+
+```sh
+curl -fsSL https://github.com/mrdidit/alabaster-arm64/releases/download/v0.5.2/install.sh | bash
+```
+
+This verifies the download and opens the same setup app. No `sudo` is needed.
 
 ## Features
 
@@ -28,4 +36,16 @@ Use the existing Steam game installation and signed-in Steam client for Cloud ac
 
 Cloud actions are manual and transfer the complete save set. Keep Steam signed in and the original game closed. **Local saves** only copies between local folders; it does not upload to Cloud. Pending local copies can then be uploaded through **Cloud sync → Upload ARM64 saves**.
 
-**v0.5.1 is a testing prerelease.** Current target: full game **0.2.0-9**, with **NW.js 0.119.2 ARM64**. See [validation and build notes](DEVELOPMENT.md) for tested scope and remaining checks, and [credits](THIRD_PARTY.md) for upstream projects.
+**v0.5.2 is a testing prerelease.** Current target: full game **0.2.0-9**, with **NW.js 0.119.2 ARM64**. See [validation and build notes](DEVELOPMENT.md) for tested scope and remaining checks, and [credits](THIRD_PARTY.md) for upstream projects.
+
+## Screenshots
+
+![Alabaster ARM64 launcher](docs/screenshots/01-launcher.jpg)
+
+![Local save selection and copying](docs/screenshots/02-local-saves.jpg)
+
+![Steam Cloud download and upload](docs/screenshots/03-cloud-sync.jpg)
+
+![Launcher options](docs/screenshots/04-options.jpg)
+
+![Alabaster ARM64 in the Steam library](docs/screenshots/05-steam-library.jpg)

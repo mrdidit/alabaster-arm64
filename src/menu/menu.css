@@ -107,7 +107,7 @@ kbd.pad-key{width:1.6rem;min-width:1.6rem}.navigation-hint>span{font-size:1.4rem
 .local-only{margin-top:1rem}.action-button{font-size:1rem;min-height:3rem;padding:.75rem 1.2rem}
 .action-button.secondary{background:#e5d9bd}.field-label{font-size:.85rem}
 .copy-preview,.backup-details{background:rgba(232,222,199,.7)}
-.overwrite-warning{font-size:1rem;line-height:1.5;color:#614315}
+.overwrite-warning{font-size:1rem;line-height:1.5;color:#614315;overflow-wrap:anywhere}
 .busy-state{font-size:1.1rem}.dialog-actions{margin-top:1.15rem}
 .slot-picker{padding:0;border:0;margin:0 0 1rem;min-width:0}
 .slot-picker legend{font-size:1rem;font-weight:650;margin-bottom:.6rem}

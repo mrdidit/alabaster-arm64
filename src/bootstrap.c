@@ -23,6 +23,7 @@ extern const unsigned char _binary_payload_tar_gz_end[];
 typedef struct {
     char *root, *stage, *archive, *download, *message, *failure;
     gboolean prepare_only, downloading;
+    char **steam_environment;
     int lock;
     GMutex mutex;
     GCancellable *cancel;
@@ -47,7 +48,17 @@ static gboolean steam_running_in(const char *proc_root, uid_t owner)
             char command_name[64] = {0};
             ssize_t count = fd >= 0 ? read(fd, command_name, sizeof(command_name) - 1) : -1;
             if (fd >= 0) close(fd);
-            if (count > 0 && !strcmp(g_strchomp(command_name), "steam")) found = TRUE;
+            if (count > 0 && !strcmp(g_strchomp(command_name), "steam")) {
+                char *stat_path = g_build_filename(process, "stat", NULL);
+                char process_stat[1024] = {0};
+                fd = open(stat_path, O_RDONLY | O_CLOEXEC);
+                count = fd >= 0 ? read(fd, process_stat, sizeof(process_stat) - 1) : -1;
+                if (fd >= 0) close(fd);
+                char *end = count > 0 ? strrchr(process_stat, ')') : NULL;
+                found = end && end[1] == ' ' && g_ascii_isalpha(end[2]) &&
+                    end[2] != 'Z' && end[2] != 'X' && end[2] != 'x';
+                g_free(stat_path);
+            }
             g_free(comm);
         }
         g_free(process);
@@ -460,6 +471,7 @@ static void setup_window(Setup *s, gboolean steam_running)
 {
     s->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(s->window), "Alabaster ARM64 — Setup");
+    gtk_window_set_decorated(GTK_WINDOW(s->window), TRUE);
     gtk_window_set_default_size(GTK_WINDOW(s->window), 800, 600);
     gtk_container_set_border_width(GTK_CONTAINER(s->window), 24);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
@@ -486,8 +498,56 @@ static void setup_window(Setup *s, gboolean steam_running)
     gtk_box_pack_start(GTK_BOX(box), s->button, FALSE, FALSE, 0);
     g_signal_connect(s->button, "clicked", G_CALLBACK(cancel_clicked), s);
     g_signal_connect(s->window, "delete-event", G_CALLBACK(close_requested), s);
-    gtk_window_fullscreen(GTK_WINDOW(s->window));
+    gtk_window_maximize(GTK_WINDOW(s->window));
     gtk_widget_show_all(s->window);
+}
+
+static gboolean start_steam(char **environment, GError **error)
+{
+    char *argv[] = {"/usr/bin/steam", NULL};
+    return g_spawn_async(NULL, argv, environment,
+                         G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                         NULL, NULL, NULL, error);
+}
+
+static gboolean prompt_for_steam(Setup *s, gboolean steam_running,
+                                gboolean (*start)(char **, GError **))
+{
+    if (steam_running) return TRUE;
+    GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(s->window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "Steam isn’t running. Start Steam?");
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+        "Steam must be open to add the launcher to your library. You can also continue installation and open Steam later.");
+    gtk_dialog_add_buttons(GTK_DIALOG(dialog), "Cancel", GTK_RESPONSE_CANCEL,
+                           "Continue without Steam", GTK_RESPONSE_NO,
+                           "Start Steam", GTK_RESPONSE_YES, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+    int response = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+    if (response == GTK_RESPONSE_YES) {
+        GError *error = NULL;
+        if (start(s->steam_environment, &error)) {
+            /* Starting the process does not establish Steam API readiness. */
+            gtk_label_set_text(GTK_LABEL(s->label), "Starting Steam. Continuing installation…");
+            return !g_cancellable_is_cancelled(s->cancel);
+        }
+        dialog = gtk_message_dialog_new(GTK_WINDOW(s->window),
+            GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+            GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "Steam could not be started");
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+            "%s\n\nContinue installation and open Steam later to add the launcher to your library.",
+            error ? error->message : "The Steam launch request failed.");
+        g_clear_error(&error);
+        gtk_dialog_add_buttons(GTK_DIALOG(dialog), "Cancel", GTK_RESPONSE_CANCEL,
+                               "Continue without Steam", GTK_RESPONSE_NO, NULL);
+        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+        response = gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+    }
+    if (response == GTK_RESPONSE_NO && !g_cancellable_is_cancelled(s->cancel)) return TRUE;
+    g_cancellable_cancel(s->cancel);
+    return FALSE;
 }
 
 static gboolean progress_tick(gpointer data)
@@ -560,19 +620,25 @@ int main(int argc, char **argv)
     gboolean ok = unpack_payload(&s, &error);
     if (ok && s.prepare_only) ok = prepare(&s, &error);
     else if (ok) {
+        /* Steam must inherit the original environment, not setup's temporary fonts. */
+        s.steam_environment = g_get_environ();
         char *fontconfig = g_build_filename(s.stage, "app/menu/assets/fonts/fonts.conf", NULL);
         g_setenv("FONTCONFIG_FILE", fontconfig, TRUE); g_free(fontconfig);
         if (!gtk_init_check(NULL, NULL)) {
             g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Open setup from Desktop Mode or Steam; no graphical display is available.");
             ok = FALSE;
         } else {
-            setup_window(&s, steam_running_in("/proc", geteuid()));
-            guint timer = g_timeout_add(150, progress_tick, &s);
-            GTask *task = g_task_new(NULL, s.cancel, completed, &s);
-            g_task_set_task_data(task, &s, NULL);
-            g_task_set_return_on_cancel(task, FALSE);
-            g_task_run_in_thread(task, worker); g_object_unref(task);
-            gtk_main(); g_source_remove(timer); gtk_widget_destroy(s.window);
+            gboolean steam_running = steam_running_in("/proc", geteuid());
+            setup_window(&s, steam_running);
+            if (prompt_for_steam(&s, steam_running, start_steam)) {
+                guint timer = g_timeout_add(150, progress_tick, &s);
+                GTask *task = g_task_new(NULL, s.cancel, completed, &s);
+                g_task_set_task_data(task, &s, NULL);
+                g_task_set_return_on_cancel(task, FALSE);
+                g_task_run_in_thread(task, worker); g_object_unref(task);
+                gtk_main(); g_source_remove(timer);
+            } else s.failure = g_strdup("Installation cancelled.");
+            gtk_widget_destroy(s.window);
             ok = s.failure == NULL;
         }
     }
@@ -592,6 +658,7 @@ int main(int argc, char **argv)
         g_clear_error(&error);
     }
     if (s.stage) remove_tree(s.stage);
+    g_strfreev(s.steam_environment);
     if (s.lock >= 0) { flock(s.lock, LOCK_UN); close(s.lock); }
     if (!ok) return 1;
     if (s.prepare_only) {

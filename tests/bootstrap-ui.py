@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import select
 import shlex
@@ -38,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='alabaster-bootstrap-ui-') as folder:
     if not args.gui:
         subprocess.run([str(binary)], check=True, timeout=10)
     else:
-        for tool in ['Xvfb', 'openbox', 'xprop']:
+        for tool in ['Xvfb', 'openbox', 'xprop', 'xwininfo']:
             if not shutil.which(tool):
                 raise SystemExit(f'GUI check unavailable: {tool} is required.')
         read_fd, write_fd = os.pipe()
@@ -58,10 +59,14 @@ with tempfile.TemporaryDirectory(prefix='alabaster-bootstrap-ui-') as folder:
                     log.seek(max(0, (temp / 'display.log').stat().st_size - 2000))
                     raise RuntimeError(log.read().decode(errors='replace'))
             env = os.environ.copy()
-            for key in ['LD_PRELOAD', 'WAYLAND_DISPLAY', 'MANGOHUD', 'FONTCONFIG_FILE', 'FONTCONFIG_PATH']:
+            for key in ['LD_PRELOAD', 'LD_LIBRARY_PATH', 'WAYLAND_DISPLAY', 'MANGOHUD',
+                        'FONTCONFIG_FILE', 'FONTCONFIG_PATH', 'GTK_PATH', 'GTK_MODULES',
+                        'GIO_EXTRA_MODULES', 'GIO_MODULE_DIR', 'DBUS_SESSION_BUS_ADDRESS']:
                 env.pop(key, None)
-            env.update(DISPLAY=':' + number, GDK_BACKEND='x11', NO_AT_BRIDGE='1', HOME=str(temp), XDG_CONFIG_HOME=str(temp / 'config'),
-                       XDG_CACHE_HOME=str(temp / 'cache'), XDG_DATA_HOME=str(temp / 'data'))
+            (temp / 'run').mkdir(mode=0o700)
+            env.update(DISPLAY=':' + number, GDK_BACKEND='x11', GTK_CSD='0', NO_AT_BRIDGE='1', HOME=str(temp), XDG_CONFIG_HOME=str(temp / 'config'),
+                       XDG_CACHE_HOME=str(temp / 'cache'), XDG_DATA_HOME=str(temp / 'data'),
+                       XDG_RUNTIME_DIR=str(temp / 'run'))
             with (temp / 'window-manager.log').open('wb') as log:
                 window_manager = subprocess.Popen(['openbox', '--sm-disable'], env=env,
                                                  stdout=log, stderr=log, start_new_session=True)
@@ -69,12 +74,23 @@ with tempfile.TemporaryDirectory(prefix='alabaster-bootstrap-ui-') as folder:
             while time.monotonic() < deadline:
                 result = subprocess.run(['xprop', '-root', '_NET_SUPPORTING_WM_CHECK'], env=env,
                                         capture_output=True, text=True, timeout=2)
-                if result.returncode == 0 and 'window id #' in result.stdout:
-                    break
+                match = re.search(r'window id # (0x[0-9a-f]+)', result.stdout)
+                if result.returncode == 0 and match:
+                    manager = subprocess.run(['xprop', '-id', match[1], '_NET_SUPPORTING_WM_CHECK', '_NET_WM_NAME'],
+                                             env=env, capture_output=True, text=True, timeout=2)
+                    if f'window id # {match[1]}' in manager.stdout and 'Openbox' in manager.stdout:
+                        print(json.dumps({'private_window_manager': manager.stdout.strip(), 'display': env['DISPLAY']}), flush=True)
+                        break
                 time.sleep(.1)
             else:
                 raise RuntimeError('Private window manager did not start within five seconds.')
-            subprocess.run([str(binary), '--gui'], env=env, check=True, timeout=15)
+            try:
+                subprocess.run([str(binary), '--gui'], env=env, check=True, timeout=20)
+            except Exception:
+                with (temp / 'window-manager.log').open('rb') as log:
+                    log.seek(max(0, (temp / 'window-manager.log').stat().st_size - 4000))
+                    print('Private Openbox output:', log.read().decode(errors='replace'), flush=True)
+                raise
             print(json.dumps({'scope': 'Production bootstrap functions; disposable process fixtures and private X display only.',
                               'real_installation_or_steam_changes': False}))
         finally:

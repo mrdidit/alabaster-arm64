@@ -8,7 +8,7 @@ const RUNTIME = 'nwjs-v0.119.2-linux-arm64';
 const MODULES = ['alabaster-dawn.arm64', 'launcher.c', 'setup.cjs', 'save-transfer.cjs', 'steam-cloud.cjs',
   'cloud-sync.cjs', 'steam-shortcut.cjs', 'uninstall.cjs', 'controller-emulation.cjs', 'setup.json', '.steam-shortcut-pending',
   'steam-shortcut.json', 'steam-shortcut-pending.json', '.setup.lock'];
-const MENU = ['index.html', 'backend.js', 'menu.js', 'menu.css', 'assets/hero.jpg', 'assets/logo.png',
+const MENU = ['index.html', 'backend.js', 'menu.js', 'menu.css', 'window.js', 'assets/THIRD_PARTY.txt', 'assets/hero.jpg', 'assets/logo.png',
   'assets/title-arm64.png', 'assets/steam/portrait.png', 'assets/steam/wide.png', 'assets/steam/hero.png',
   'assets/steam/logo.png', 'assets/fonts/LICENSE.txt', 'assets/fonts/NOTICE.txt', 'assets/fonts/fonts.conf',
   'assets/fonts/NotoSerif-Regular.ttf', 'assets/fonts/NotoSans-Regular.ttf', 'assets/fonts/NotoSans-Bold.ttf',
@@ -57,6 +57,21 @@ function desktopExecutable(source) {
   if (/%(?!%)/.test(executable.replace(/%%/g, '')) || /[\0\r\n]/.test(executable)) return null;
   executable = executable.replace(/%%/g, '%');
   return path.isAbsolute(executable) ? executable : null;
+}
+
+function desktopIdentity(source) {
+  let section = '';
+  const values = {};
+  for (const line of source.split(/\r?\n/)) {
+    if (/^\s*[#;]/.test(line) || !line.trim()) continue;
+    if (/^\[.*\]$/.test(line)) { section = line; continue; }
+    if (section !== '[Desktop Entry]') continue;
+    const match = /^(Name|Type)=(.*)$/.exec(line);
+    if (!match) continue;
+    if (Object.hasOwn(values, match[1])) return null;
+    values[match[1]] = match[2];
+  }
+  return values.Type === 'Application' ? values.Name : null;
 }
 
 function createUninstall({root, home = os.homedir(), isBusy = async () => false, removeSteamShortcut} = {}) {
@@ -137,6 +152,28 @@ function createUninstall({root, home = os.homedir(), isBusy = async () => false,
     }
     return [...new Set([path.join(data, 'applications'), ...(path.resolve(desktop) === home ? [] : [desktop])])];
   }
+  function legacyDesktop(source, executable) {
+    // Historical installers used these exact home-relative targets. Only the
+    // shortcut is removed; their installations, runtime and save data remain.
+    const name = desktopIdentity(source);
+    const legacy = [
+      ['Alabaster-Dawn-ARM64', 'alabaster-dawn.arm64', 'Alabaster Dawn ARM64'],
+      ['Alabaster-Dawn-ARM64-Test', 'alabaster-dawn.arm64', 'Alabaster Dawn ARM64 Test'],
+      ['Alabaster-Dawn-ARM64-Test', 'launch.sh', 'Alabaster Dawn ARM64 Test'],
+    ].find(([directory, binary, title]) => name === title && executable === path.join(home, 'Games', directory, binary));
+    if (!legacy) return false;
+    let current = home;
+    for (const part of ['Games', legacy[0]]) {
+      current = path.join(current, part);
+      const stat = exists(current);
+      // Missing historical roots are expected for stale shortcuts. Existing
+      // ancestors must still be owned directories, never aliases elsewhere.
+      if (!stat) return true;
+      if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid) return false;
+    }
+    const binary = exists(executable);
+    return !binary || (binary.isFile() && !binary.isSymbolicLink() && binary.uid === uid);
+  }
   function collect() {
     validateInstallation();
     const entries = [], warnings = [], keep = new Set(['profile', 'profile-edition.json', 'save-backups', 'cloud-backups', 'cloud-recovery.json', 'logs']);
@@ -189,8 +226,11 @@ function createUninstall({root, home = os.homedir(), isBusy = async () => false,
           continue;
         }
         let parent;
-        try { parent = fs.realpathSync(path.dirname(executable)); } catch { continue; }
-        if (parent !== root || path.basename(executable) !== 'alabaster-dawn.arm64') continue;
+        try { parent = fs.realpathSync(path.dirname(executable)); } catch (error) {
+          if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+        }
+        const currentTarget = parent === root && path.basename(executable) === 'alabaster-dawn.arm64';
+        if (!currentTarget && !legacyDesktop(source, executable)) continue;
         entries.push({path:file, external:true, snapshot:[['', fingerprint(item), null]], identity:identity(item), bytes:item.size});
       }
     }

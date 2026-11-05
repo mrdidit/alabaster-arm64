@@ -18,3 +18,6 @@ do
     printf '\nRunning %s\n' "$test_name"
     "$test_node" "$test_dir/$test_name"
 done
+
+printf '\nRunning install-script.sh\n'
+bash "$test_dir/install-script.sh"

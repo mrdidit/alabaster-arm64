@@ -44,6 +44,7 @@ with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
 for line in (directory / 'SHA256SUMS').read_text().splitlines():
     expected, name = line.split()
     assert digest((directory / name).read_bytes()) == expected, name
+assert (directory / 'install.sh').read_bytes() == (root / 'install.sh').read_bytes()
 with tarfile.open(directory / 'Alabaster-Dawn-Setup-linux-arm64.tar.gz', mode='r:gz') as archive:
     assert archive.getnames() == [binary.name]
     assert archive.extractfile(binary.name).read() == data

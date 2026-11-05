@@ -1,6 +1,6 @@
 {
   "name": "alabaster-arm64",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "main": "menu/index.html",
   "chromium-args": "--ignore-gpu-blacklist --force-device-scale-factor=1 --force_high_performance_gpu --disable-direct-composition --disable-background-networking --enable-experimental-web-platform-features --disable-features=Vulkan",
   "window": {
