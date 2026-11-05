@@ -12,6 +12,14 @@ const NAME = 'Alabaster Dawn ARM64';
 const ART = Object.freeze({portrait: 0, hero: 1, logo: 2, wide: 3});
 const WRAPPER = '/usr/libexec/armada/armada-game-launch';
 const LAUNCH_OPTIONS = `${WRAPPER} %command%`;
+const HUD_CONFIG = 'preset=2,no_display=0,position=bottom-right,font_size=18';
+const HUD_OPTIONS = `MANGOHUD_CONFIGFILE=/dev/null MANGOHUD_CONFIG=${HUD_CONFIG} mangohud ${LAUNCH_OPTIONS}`;
+// Exact known forms only. Do not parse/rewrite arbitrary shell launch options.
+const HUD_ENABLED_OPTIONS = Object.freeze([
+  HUD_OPTIONS, `mangohud ${LAUNCH_OPTIONS}`,
+  `MANGOHUD_CONFIG=${HUD_CONFIG} mangohud ${LAUNCH_OPTIONS}`,
+]);
+const HUD_KNOWN_OPTIONS = Object.freeze(['', LAUNCH_OPTIONS, ...HUD_ENABLED_OPTIONS]);
 
 function safePath(value) {
   if (typeof value !== 'string' || !path.isAbsolute(value) || /[\x00-\x1f"\\]/.test(value))
@@ -116,8 +124,48 @@ async function steamAction(p) {
       return {account, appId: p.appId, applied: true};
     }
     const removing = p.action === 'remove' || p.action === 'remove-status';
-    const details = await scan(removing ? removalLocalApps() : localApps());
+    const hud = p.action === 'hud-status' || p.action === 'hud-set';
+    const details = await scan(removing || hud ? removalLocalApps() : localApps());
     const matches = details.filter(item => unquote(item.strShortcutExe) === p.exe);
+    if (hud) {
+      const writable = typeof apps.SetShortcutLaunchOptions === 'function';
+      if (p.action === 'hud-status') return {ok: true, available: true, account, installed: matches.length > 0,
+        matches: matches.map(pack), writable};
+      if (matches.length !== 1) throw new Error(matches.length ?
+        'More than one Steam entry points to this launcher. Remove the duplicate before changing MangoHud.' :
+        'Add this launcher to Steam from Options before changing MangoHud.');
+      if (!writable) throw new Error('This Steam version cannot update launch options. Set them manually in Steam.');
+      if (!p.expected || !Number.isInteger(p.expected.appId) || typeof p.expected.launchOptions !== 'string' ||
+          !Array.isArray(p.knownOptions) || !p.knownOptions.includes(p.expected.launchOptions) ||
+          typeof p.launchOptions !== 'string' || !p.knownOptions.includes(p.launchOptions))
+        throw new Error('The MangoHud review is incomplete. Reopen its settings before applying.');
+      let value = pack(matches[0]);
+      const expected = () => value.appId === p.expected.appId && value.launchOptions === p.expected.launchOptions &&
+        unquote(value.exe) === p.exe && removalLocalApps().some(item => item.appid === value.appId);
+      if (!expected()) throw new Error('The Steam entry or launch options changed. Reopen MangoHud settings before applying.');
+      // Recheck immediately before the setter. Steam provides no atomic CAS API.
+      value = pack(await detail(value.appId));
+      checkAccount();
+      if (!expected()) throw new Error('The Steam entry or launch options changed. Nothing was overwritten.');
+      if (value.launchOptions === p.launchOptions)
+        return {ok: true, available: true, installed: true, account, changed: false, ...value};
+      try {
+        await bounded(apps.SetShortcutLaunchOptions(value.appId, p.launchOptions));
+        checkAccount();
+        for (let attempt = 0; attempt < 8; attempt++) {
+          value = pack(await detail(p.expected.appId));
+          checkAccount();
+          if (unquote(value.exe) !== p.exe || !removalLocalApps().some(item => item.appid === value.appId))
+            throw new Error('The Steam entry changed during the update. Check its launch options in Steam.');
+          if (value.launchOptions === p.launchOptions)
+            return {ok: true, available: true, installed: true, account, changed: true, ...value};
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error('Steam did not confirm the new launch options. Check them in Steam before retrying.');
+      } catch (error) {
+        return {ok: false, account, uncertain: true, error: error.message};
+      }
+    }
     if (p.action === 'remove-status')
       return {ok: true, account, matches: matches.map(item => item.unAppID).sort((a, b) => a - b)};
     if (p.action === 'remove') {
@@ -205,6 +253,8 @@ function createSteamShortcut({root, home = os.homedir(), WebSocket: Socket = glo
   const receiptPath = path.join(root, 'steam-shortcut.json');
   const pendingPath = path.join(root, 'steam-shortcut-pending.json');
   let busy = false;
+  let hudReview = null;
+  let hudUncertain = false;
   async function evaluate(payload) {
     const expression = `(${steamAction.toString()})(${JSON.stringify(payload)})`;
     if (testEvaluate) return testEvaluate(expression);
@@ -219,14 +269,21 @@ function createSteamShortcut({root, home = os.homedir(), WebSocket: Socket = glo
     return new Promise((resolve, reject) => {
       const socket = new Socket(url.href);
       let settled = false;
+      let dispatched = false;
       const timer = setTimeout(() => finish(new Error('Steam shortcut registration timed out. Check the library before retrying.')), 30000);
       function finish(error, value) {
         if (settled) return;
         settled = true; clearTimeout(timer); socket.close();
+        if (error && payload.action === 'hud-set' && dispatched && !error.steamActionRejected) error.uncertain = true;
         if (error) reject(error); else resolve(value);
       }
-      socket.addEventListener('open', () => socket.send(JSON.stringify({id: 1, method: 'Runtime.evaluate', params: {
-        expression, returnByValue: true, awaitPromise: true, timeout: 25000}})));
+      socket.addEventListener('open', () => {
+        try {
+          dispatched = true;
+          socket.send(JSON.stringify({id: 1, method: 'Runtime.evaluate', params: {
+            expression, returnByValue: true, awaitPromise: true, timeout: 25000}}));
+        } catch (error) { finish(error); }
+      });
       socket.addEventListener('error', () => finish(new Error('Cannot connect to the running Steam client.')));
       socket.addEventListener('close', () => finish(new Error('Steam closed the connection.')));
       socket.addEventListener('message', event => {
@@ -236,7 +293,11 @@ function createSteamShortcut({root, home = os.homedir(), WebSocket: Socket = glo
           if (reply.id !== 1) return;
           if (reply.error) throw new Error('Steam rejected the shortcut request.');
           const exception = reply.result?.exceptionDetails;
-          if (exception) throw new Error((exception.exception?.description || exception.text || 'Steam shortcut request failed.').split('\n')[0].replace(/^Error: /, ''));
+          if (exception) {
+            const error = new Error((exception.exception?.description || exception.text || 'Steam shortcut request failed.').split('\n')[0].replace(/^Error: /, ''));
+            error.steamActionRejected = true;
+            throw error;
+          }
           finish(null, reply.result?.result?.value);
         } catch (error) { finish(error); }
       });
@@ -270,6 +331,66 @@ function createSteamShortcut({root, home = os.homedir(), WebSocket: Socket = glo
   async function status() {
     try { return await evaluate(payload('status')); }
     catch (error) { return {ok: false, available: false, installed: false, warning: error.message}; }
+  }
+  async function hudStatus() {
+    hudReview = null;
+    const base = {manualLaunchOptions: HUD_OPTIONS, enabled: false, supported: false, token: null, launchOptions: null};
+    try {
+      const result = await evaluate(payload('hud-status'));
+      if (!result?.ok || !result.account || !Array.isArray(result.matches)) throw new Error('Steam returned incomplete shortcut details. Try again.');
+      if (result.matches.length !== 1) return {...base, ok: true, available: true, installed: result.matches.length > 0,
+        reason: result.matches.length ? 'More than one Steam entry points to this launcher. Remove the duplicate before changing MangoHud.' :
+          'Add this launcher to Steam from Options before changing MangoHud.'};
+      const value = result.matches[0];
+      if (!Number.isInteger(value.appId) || value.appId <= 0 || value.appId > 4294967295 || typeof value.launchOptions !== 'string')
+        throw new Error('Steam did not return the current launch options. Set them manually in Steam.');
+      const known = HUD_KNOWN_OPTIONS.includes(value.launchOptions);
+      const supported = known && result.writable === true && !hudUncertain && !busy;
+      const token = supported ? crypto.randomUUID() : null;
+      if (supported) hudReview = {token, account: result.account, appId: value.appId, launchOptions: value.launchOptions};
+      return {...base, ok: true, available: true, installed: true, supported, ...value,
+        enabled: HUD_ENABLED_OPTIONS.includes(value.launchOptions), token, uncertain: hudUncertain,
+        reason: hudUncertain ? 'The previous update could not be verified. Check launch options in Steam, then close and reopen this launcher.' :
+          busy ? 'Wait for the current Steam shortcut operation to finish.' :
+          !known ? 'Custom launch options are kept unchanged. Add MangoHud manually in Steam using the line below.' :
+          !result.writable ? 'This Steam version cannot update launch options. Set them manually in Steam.' : ''};
+    } catch (error) {
+      return {...base, ok: false, available: false, installed: false,
+        reason: error.message, uncertain: hudUncertain};
+    }
+  }
+  async function hudSet(enabled, {token, expectedLaunchOptions} = {}) {
+    if (typeof enabled !== 'boolean' || typeof token !== 'string' || !token || typeof expectedLaunchOptions !== 'string')
+      throw new Error('Choose On or Off from the current MangoHud settings before applying.');
+    if (busy) throw new Error('A Steam shortcut operation is already in progress.');
+    if (hudUncertain) throw new Error('Check launch options in Steam, then close and reopen this launcher before applying again.');
+    const approved = hudReview;
+    if (!approved || token !== approved.token || expectedLaunchOptions !== approved.launchOptions)
+      throw new Error('MangoHud settings changed or expired. Reopen them before applying.');
+    hudReview = null;
+    busy = true;
+    let result;
+    try {
+      result = await evaluate({...payload('hud-set'), account: approved.account,
+        expected: {appId: approved.appId, launchOptions: approved.launchOptions},
+        knownOptions: HUD_KNOWN_OPTIONS, launchOptions: enabled ? HUD_OPTIONS : LAUNCH_OPTIONS});
+      if (!result?.ok || result.account !== approved.account || result.appId !== approved.appId ||
+          result.launchOptions !== (enabled ? HUD_OPTIONS : LAUNCH_OPTIONS)) {
+        hudUncertain = result?.uncertain === true || result?.ok === true;
+        const error = new Error(result?.error || 'Steam did not verify the MangoHud launch options. Check them in Steam.');
+        error.uncertain = hudUncertain;
+        throw error;
+      }
+    } catch (error) {
+      // Transport failure can hide a completed or still-pending remote setter.
+      if (error.uncertain === true || (!result && /connection|connect|timed out|timeout|Steam rejected|closed/i.test(error.message))) hudUncertain = true;
+      error.uncertain = hudUncertain;
+      throw error;
+    } finally { busy = false; }
+    const after = await hudStatus();
+    if (!after.supported || hudReview?.account !== approved.account || after.appId !== approved.appId || after.launchOptions !== result.launchOptions)
+      throw new Error('MangoHud was updated, but the current Steam entry changed before final verification. Review it in Steam.');
+    return {...after, changed: result.changed, message: enabled ? 'MangoHud is enabled for this Steam entry.' : 'MangoHud is disabled. Armada launch settings were kept.'};
   }
   async function ensure({forceArtwork = false} = {}) {
     if (busy) throw new Error('Steam registration is already in progress.');
@@ -350,7 +471,7 @@ function createSteamShortcut({root, home = os.homedir(), WebSocket: Socket = glo
       return {ok: true, removed, installed: false};
     } finally { busy = false; }
   }
-  return {status, ensure, remove};
+  return {status, ensure, remove, hudStatus, hudSet};
 }
 
 module.exports = {createSteamShortcut};

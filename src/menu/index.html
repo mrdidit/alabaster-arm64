@@ -166,11 +166,13 @@
       <div id="options-view" class="dialog-view" hidden>
         <p id="installed-path" class="installed-path"></p>
         <div class="direction-list">
-          <button id="add-to-steam" class="direction-button" data-action="add-to-steam">Add / update Steam entry</button>
-          <button id="open-controller" class="direction-button" data-action="open-controller">Controller emulation</button>
-          <button id="uninstall" class="direction-button" data-action="uninstall">Disconnect game files</button>
-          <button id="complete-uninstall" class="direction-button danger" data-action="complete-preview">Complete uninstall</button>
+          <button id="add-to-steam" class="direction-button" data-action="add-to-steam"><span>Add / update Steam entry</span><small>Add the launcher and artwork to Steam, or repair its entry.</small></button>
+          <button id="open-controller" class="direction-button" data-action="open-controller"><span>Controller emulation</span><small>Desktop Mode: use Xbox 360, or restore Steam Deck.</small></button>
+          <button id="open-hud" class="direction-button" data-action="open-hud"><span>MangoHud</span><small>Add an in-game HUD: size 18, bottom right.</small></button>
+          <button id="uninstall" class="direction-button" data-action="uninstall"><span>Disconnect game files</span><small>Keep the launcher and choose the game folder again later.</small></button>
+          <button id="complete-uninstall" class="direction-button danger" data-action="complete-preview"><span>Complete uninstall</span><small>Remove the launcher and shortcuts. Keep the game, saves and backups.</small></button>
         </div>
+        <p class="local-only">Keep Steam open to update or remove its entry.</p>
         <p id="complete-uninstall-note" class="dialog-notice"></p>
         <div class="dialog-actions"><button class="action-button secondary" data-action="back">Back</button></div>
       </div>
@@ -180,7 +182,7 @@
           <p><span class="field-label">Configured</span><strong id="controller-configured">Unknown</strong></p>
           <p><span class="field-label">Live</span><strong id="controller-live">Unknown</strong></p>
         </div>
-        <p class="local-only controller-scope">Changes Armada’s controller emulation across the device and stays set after reboot. Controls briefly reconnect; administrator approval may be requested.</p>
+        <p class="local-only controller-scope">Desktop Mode needs Xbox 360 for controller input in the launcher and game. Approve the administrator prompt to switch; this changes Armada’s mode across the device and persists after reboot. Steam Deck can be restored here. In Gaming Mode, both work—use Armada Control.</p>
         <p id="controller-status" class="cloud-detail" role="status"></p>
         <div class="controller-choices" role="group" aria-label="Choose controller emulation">
           <button id="controller-deck" class="direction-button" data-action="controller-choice" data-controller="deck-uhid" aria-pressed="false">Steam Deck</button>
@@ -190,6 +192,22 @@
         <div class="dialog-actions">
           <button id="controller-back" class="action-button secondary" data-action="back">Back</button>
           <button id="controller-apply" class="action-button confirm" data-action="controller-apply" disabled>Apply</button>
+        </div>
+      </div>
+
+      <div id="hud-view" class="dialog-view" hidden>
+        <p class="local-only hud-intro">Show GPU usage with an in-game HUD. Disable Steam’s performance overlay in QAM to avoid duplicates. Changes take effect on the next Steam launch.</p>
+        <p id="hud-status" class="cloud-detail" role="status"></p>
+        <div class="controller-choices" role="group" aria-label="Steam MangoHud setting">
+          <button id="hud-off" class="direction-button" data-action="hud-choice" data-enabled="false" aria-pressed="false">Off</button>
+          <button id="hud-on" class="direction-button" data-action="hud-choice" data-enabled="true" aria-pressed="false">On · size 18</button>
+        </div>
+        <span class="field-label hud-command-label">Launch command · bottom right</span>
+        <pre id="hud-command" class="hud-command"></pre>
+        <p id="hud-error" class="dialog-notice" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="hud-back" class="action-button secondary" data-action="back">Back</button>
+          <button id="hud-apply" class="action-button confirm" data-action="hud-apply" disabled>Apply</button>
         </div>
       </div>
 

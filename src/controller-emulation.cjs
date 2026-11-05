@@ -6,6 +6,10 @@ const HELPER = '/usr/libexec/armada/controller-type';
 const DEVICE_ENV = '/usr/libexec/armada/device-env';
 const BUSCTL = '/usr/bin/busctl';
 const PKEXEC = '/usr/bin/pkexec';
+const SYSTEMCTL = '/usr/bin/systemctl';
+const GAME_SESSION = 'gamescope-session-plus@steam.service';
+const GAMING_REASON = 'Use Armada Control in Gaming Mode. Switch to Desktop Mode to change this setting here.';
+const UNKNOWN_SESSION_REASON = 'The desktop session could not be checked. Switch to Desktop Mode to change this setting here.';
 const SERVICE = 'org.shadowblip.InputPlumber';
 const COMPOSITE = 'org.shadowblip.Input.CompositeDevice';
 const TARGET = 'org.shadowblip.Input.Target';
@@ -69,7 +73,24 @@ function problem(error, fallback) {
   return typeof error?.message === 'string' ? error.message.replace(/[\x00-\x1f]+/g, ' ').slice(0, 500) : fallback;
 }
 
-function createControllerEmulation({isBusy = async () => false, run = execute, readTimeoutMs = 5000, applyTimeoutMs = 60000} = {}) {
+function environmentSession(env) {
+  const tokens = key => typeof env?.[key] === 'string' ? env[key].toLowerCase().trim().split(':').filter(Boolean) : [];
+  const gaming = values => values.some(value => /^(?:gamescope(?:-wayland|-session(?:-plus)?)?)$/.test(value));
+  const desktop = values => values.some(value => ['kde', 'plasma', 'plasmawayland', 'gnome', 'gnome-classic',
+    'xfce', 'xfce4', 'cinnamon', 'x-cinnamon', 'mate', 'lxqt', 'lxde', 'sway', 'hyprland'].includes(value));
+  // XDG_SESSION_DESKTOP/DESKTOP_SESSION can retain Gamescope values after a
+  // switch to KDE. SteamDeck and Steam UI flags also apply to Desktop launches.
+  const current = tokens('XDG_CURRENT_DESKTOP');
+  if (gaming(current)) return 'gaming';
+  if (desktop(current)) return 'desktop';
+  if (current.length) return 'unknown';
+  const session = [...tokens('XDG_SESSION_DESKTOP'), ...tokens('DESKTOP_SESSION')];
+  if (gaming(session)) return 'gaming';
+  return desktop(session) ? 'desktop' : 'unknown';
+}
+
+function createControllerEmulation({isBusy = async () => false, run = execute, getEnvironment = () => process.env,
+  readTimeoutMs = 5000, applyTimeoutMs = 60000} = {}) {
   let applying = false;
   let pendingApply = null;
   const options = timeout => ({timeout, killSignal:'SIGTERM', maxBuffer:256*1024, encoding:'utf8', shell:false, env:cleanEnvironment()});
@@ -77,6 +98,26 @@ function createControllerEmulation({isBusy = async () => false, run = execute, r
     const value = await run(file, args, options(timeout));
     return typeof value === 'string' ? value : String(value.stdout || '');
   };
+  async function sessionState() {
+    let session = 'unknown', sessionSource = 'environment';
+    try {
+      // Armada's session manager uses this exact user unit to identify Gaming
+      // Mode. Transitioning out of it still blocks a controller mutation.
+      const text = await command(SYSTEMCTL, ['--user', '--no-pager', 'show', GAME_SESSION,
+        '--property=LoadState', '--property=ActiveState']);
+      const fields = Object.fromEntries(text.trim().split(/\r?\n/).map(line => line.split('=')));
+      if (fields.LoadState === 'loaded') {
+        if (['active', 'activating', 'reloading', 'deactivating'].includes(fields.ActiveState)) session = 'gaming';
+        else if (['inactive', 'failed'].includes(fields.ActiveState)) session = 'desktop';
+        if (session !== 'unknown') sessionSource = 'systemd';
+      }
+    } catch { /* Older systems can lack the Armada user unit or user bus. */ }
+    if (session === 'unknown') {
+      try { session = environmentSession(getEnvironment()); } catch { /* Unreadable environment remains unknown. */ }
+    }
+    return {session, sessionSource, sessionReason:session === 'gaming' ? GAMING_REASON :
+      session === 'unknown' ? UNKNOWN_SESSION_REASON : ''};
+  }
   async function property(object, iface, name, type) {
     const source = await command(BUSCTL, ['--system', '--no-pager', '--json=short', 'get-property', SERVICE, object, iface, name]);
     let value;
@@ -103,7 +144,7 @@ function createControllerEmulation({isBusy = async () => false, run = execute, r
   }
   async function inspect(ignoreApplying = false) {
     const results = await Promise.allSettled([
-      command(HELPER, ['get']), command(DEVICE_ENV, []), scan(), Promise.resolve().then(isBusy),
+      command(HELPER, ['get']), command(DEVICE_ENV, []), scan(), Promise.resolve().then(isBusy), sessionState(),
     ]);
     let configured = null, targets = [], supported = [...ALLOWED], live = null;
     const failures = [];
@@ -119,11 +160,14 @@ function createControllerEmulation({isBusy = async () => false, run = execute, r
     } else failures.push(problem(results[2].reason, 'InputPlumber live controller state is unavailable.'));
     if (results[3].status === 'rejected') failures.push('The game activity check failed. Close the game before changing controllers.');
     const busy = (applying && !ignoreApplying) || Boolean(pendingApply) || results[3].status === 'rejected' || Boolean(results[3].value);
+    const session = results[4].status === 'fulfilled' ? results[4].value :
+      {session:'unknown', sessionSource:'environment', sessionReason:UNKNOWN_SESSION_REASON};
     if (!supported.length) failures.push('This device does not advertise Steam Deck or Xbox 360 emulation.');
-    return {available:!failures.length && !busy, configured, live, reason:failures.join(' ') || (pendingApply
+    return {available:session.session === 'desktop' && !failures.length && !busy, configured, live,
+      reason:session.sessionReason || failures.join(' ') || (pendingApply
       ? 'The previous privileged controller command may still be running. Wait for it to exit before applying another change.'
       : busy ? 'Close the game or wait for the current controller switch.' : ''),
-      targets, supported, busy};
+      targets, supported, busy, ...session};
   }
   function matching(state, value, original = state.targets) {
     return state.configured === value && equal(state.targets.map(item=>item.path), original.map(item=>item.path)) &&
@@ -145,8 +189,14 @@ function createControllerEmulation({isBusy = async () => false, run = execute, r
     if (!before.supported.includes(value)) throw new Error('This controller type is not supported by the device profile.');
     if (matching(before, value)) return {...before, changed:false, message:'This controller emulation is already selected.'};
     let failure = null;
+    if (await isBusy()) throw new Error('Close the game before changing controller emulation.');
+    const session = await sessionState();
+    if (session.session !== 'desktop') {
+      const error = new Error(session.sessionReason);
+      error.state = {...before, ...session, available:false, reason:session.sessionReason};
+      throw error;
+    }
     try {
-      if (await isBusy()) throw new Error('Close the game before changing controller emulation.');
       await command(PKEXEC, ['--disable-internal-agent', HELPER, 'set', value], applyTimeoutMs);
     } catch (error) {
       failure = error;

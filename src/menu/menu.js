@@ -5,7 +5,7 @@
   const home = byId("home");
   const layer = byId("dialog-layer");
   const dialog = layer.querySelector(".dialog");
-  const views = ["sync", "preview", "cloud", "cloud-preview", "busy", "result", "install", "options", "controller", "uninstall", "complete-preview"];
+  const views = ["sync", "preview", "cloud", "cloud-preview", "busy", "result", "install", "options", "controller", "hud", "uninstall", "complete-preview"];
   let screen = "home";
   let busy = false;
   let externalBusy = false;
@@ -17,6 +17,8 @@
   let uninstallPlan = null;
   let controller = null;
   let controllerChoice = null;
+  let hud = null;
+  let hudChoice = null;
   let supportNotice = "";
   let setup = null;
   let sourceSide = "arm64";
@@ -320,6 +322,7 @@
     uninstallPlan = null;
     byId("uninstall").disabled = !setup?.installed || externalBusy;
     byId("add-to-steam").disabled = !setup?.installed || externalBusy || typeof api().addToSteam !== "function";
+    byId("open-hud").disabled = !setup?.installed || externalBusy;
     const supported = typeof api().uninstallPreview === "function" && typeof api().completeUninstall === "function";
     byId("complete-uninstall").disabled = busy || externalBusy || !supported;
     text("complete-uninstall-note", supported ? "" : "Complete uninstall is unavailable in this launcher version.");
@@ -361,12 +364,74 @@
     } else if (screen === "cloud-preview") {
       cloudPreview = null;
       showCloud();
-    } else if (["uninstall", "complete-preview", "controller"].includes(screen)) {
+    } else if (["uninstall", "complete-preview", "controller", "hud"].includes(screen)) {
       showOptions();
     } else if (screen !== "home") {
       preview = null;
       const target = screen === "result" ? resultFocus : screen === "cloud" ? "open-cloud" : screen === "options" ? "options" : screen === "install" ? "play" : "open-sync";
       setView("home", {focus: byId(target)});
+    }
+  }
+
+  function hudState(value) {
+    if (!value || typeof value.available !== "boolean" || typeof value.supported !== "boolean" ||
+        typeof value.manualLaunchOptions !== "string" || (value.supported &&
+          (typeof value.enabled !== "boolean" || typeof value.token !== "string" || typeof value.launchOptions !== "string")))
+      throw new Error("Steam's launch settings could not be verified. Reopen MangoHud to check them.");
+    return value;
+  }
+  function showHud(error = "", notice = "") {
+    const available = hud?.available === true && hud?.supported === true && !externalBusy;
+    text("hud-status", hud?.reason || (available ? `Steam entry: MangoHud ${hud.enabled ? "on" : "off"}.` : "MangoHud settings are unavailable."));
+    text("hud-command", hud?.manualLaunchOptions || "");
+    text("hud-error", [error, notice].filter(Boolean).join(" "));
+    for (const button of byId("hud-view").querySelectorAll("[data-enabled]")) {
+      button.disabled = !available;
+      button.setAttribute("aria-pressed", String((button.dataset.enabled === "true") === hudChoice));
+    }
+    byId("hud-apply").disabled = !available || typeof hudChoice !== "boolean" ||
+      (hudChoice === hud.enabled && (!hudChoice || hud.launchOptions === hud.manualLaunchOptions));
+    setView("hud", {title:"MangoHud", kicker:"Steam launch options", description:"", focus:byId("hud-back")});
+  }
+  async function openHud() {
+    if (busy || screen !== "options") return;
+    const token = ++operation;
+    hud = null; hudChoice = null;
+    busyView("MangoHud", "Reading Steam launch options…");
+    try {
+      if (typeof api().hudStatus !== "function" || typeof api().hudSet !== "function")
+        throw new Error("MangoHud settings are unavailable in this launcher version.");
+      const value = hudState(await api().hudStatus());
+      if (disposed || token !== operation) return;
+      hud = value; hudChoice = value.enabled;
+      setBusy(false); showHud();
+    } catch (error) {
+      if (disposed || token !== operation) return;
+      setBusy(false); showHud(message(error));
+    }
+  }
+  function chooseHud(enabled) {
+    if (busy || screen !== "hud" || !hud?.supported || !hud.available) return;
+    hudChoice = enabled;
+    showHud();
+    initialFocus(byId(enabled ? "hud-on" : "hud-off"));
+  }
+  async function applyHud() {
+    if (busy || screen !== "hud" || byId("hud-apply").disabled) return;
+    const token = ++operation;
+    const enabled = hudChoice;
+    busyView("MangoHud", "Updating Steam launch options…");
+    try {
+      const value = hudState(await api().hudSet(enabled, {token:hud.token, expectedLaunchOptions:hud.launchOptions}));
+      if (disposed || token !== operation) return;
+      if (!value.available || !value.supported || value.enabled !== enabled)
+        throw new Error("Steam did not confirm the requested setting. Reopen MangoHud to check the launch options.");
+      hud = value; hudChoice = value.enabled;
+      setBusy(false); showHud("", "Saved. Takes effect on the next launch from Steam.");
+    } catch (error) {
+      if (disposed || token !== operation) return;
+      hud = null; hudChoice = null;
+      setBusy(false); showHud(message(error));
     }
   }
 
@@ -804,6 +869,9 @@
       case "options": showOptions(); break;
       case "add-to-steam": void addToSteam(); break;
       case "open-controller": void openController(); break;
+      case "open-hud": void openHud(); break;
+      case "hud-choice": chooseHud(button.dataset.enabled === "true"); break;
+      case "hud-apply": void applyHud(); break;
       case "controller-choice": chooseController(button.dataset.controller); break;
       case "controller-apply": void applyController(); break;
       case "browse": void browseGame(); break;

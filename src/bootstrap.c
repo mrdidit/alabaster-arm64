@@ -26,8 +26,36 @@ typedef struct {
     int lock;
     GMutex mutex;
     GCancellable *cancel;
-    GtkWidget *window, *label, *progress, *button;
+    GtkWidget *window, *label, *progress, *button, *steam_warning;
 } Setup;
+
+/* This only detects the current user's Steam process. Shortcut registration
+ * still has to verify Steam's live API after installation. */
+static gboolean steam_running_in(const char *proc_root, uid_t owner)
+{
+    GDir *proc = g_dir_open(proc_root, 0, NULL);
+    if (!proc) return FALSE;
+    const char *name;
+    gboolean found = FALSE;
+    while ((name = g_dir_read_name(proc))) {
+        if (!name[0] || strspn(name, "0123456789") != strlen(name)) continue;
+        char *process = g_build_filename(proc_root, name, NULL);
+        struct stat st;
+        if (g_stat(process, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == owner) {
+            char *comm = g_build_filename(process, "comm", NULL);
+            int fd = open(comm, O_RDONLY | O_CLOEXEC);
+            char command_name[64] = {0};
+            ssize_t count = fd >= 0 ? read(fd, command_name, sizeof(command_name) - 1) : -1;
+            if (fd >= 0) close(fd);
+            if (count > 0 && !strcmp(g_strchomp(command_name), "steam")) found = TRUE;
+            g_free(comm);
+        }
+        g_free(process);
+        if (found) break;
+    }
+    g_dir_close(proc);
+    return found;
+}
 
 static gboolean errorf(GError **error, const char *message, const char *path)
 {
@@ -428,6 +456,40 @@ static gboolean close_requested(GtkWidget *widget, GdkEvent *event, gpointer dat
     return TRUE;
 }
 
+static void setup_window(Setup *s, gboolean steam_running)
+{
+    s->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(s->window), "Alabaster ARM64 — Setup");
+    gtk_window_set_default_size(GTK_WINDOW(s->window), 800, 600);
+    gtk_container_set_border_width(GTK_CONTAINER(s->window), 24);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(box, 520, -1);
+    gtk_container_add(GTK_CONTAINER(s->window), box);
+    s->label = gtk_label_new("Preparing launcher…");
+    gtk_label_set_line_wrap(GTK_LABEL(s->label), TRUE);
+    s->progress = gtk_progress_bar_new();
+    s->button = gtk_button_new_with_label("Cancel");
+    gtk_box_pack_start(GTK_BOX(box), s->label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(box), s->progress, FALSE, TRUE, 0);
+    if (!steam_running) {
+        s->steam_warning = gtk_info_bar_new();
+        gtk_info_bar_set_message_type(GTK_INFO_BAR(s->steam_warning), GTK_MESSAGE_WARNING);
+        GtkWidget *notice = gtk_label_new("Steam was not detected. Installation can continue, but Steam must be open to add the launcher to your library.");
+        gtk_label_set_line_wrap(GTK_LABEL(notice), TRUE);
+        gtk_label_set_max_width_chars(GTK_LABEL(notice), 56);
+        gtk_label_set_xalign(GTK_LABEL(notice), 0.0f);
+        gtk_container_add(GTK_CONTAINER(gtk_info_bar_get_content_area(GTK_INFO_BAR(s->steam_warning))), notice);
+        gtk_box_pack_start(GTK_BOX(box), s->steam_warning, FALSE, TRUE, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(box), s->button, FALSE, FALSE, 0);
+    g_signal_connect(s->button, "clicked", G_CALLBACK(cancel_clicked), s);
+    g_signal_connect(s->window, "delete-event", G_CALLBACK(close_requested), s);
+    gtk_window_fullscreen(GTK_WINDOW(s->window));
+    gtk_widget_show_all(s->window);
+}
+
 static gboolean progress_tick(gpointer data)
 {
     Setup *s = data;
@@ -504,23 +566,7 @@ int main(int argc, char **argv)
             g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Open setup from Desktop Mode or Steam; no graphical display is available.");
             ok = FALSE;
         } else {
-            s.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-            gtk_window_set_title(GTK_WINDOW(s.window), "Alabaster Dawn — Setup");
-            gtk_window_set_default_size(GTK_WINDOW(s.window), 460, 180);
-            gtk_window_set_resizable(GTK_WINDOW(s.window), FALSE);
-            gtk_container_set_border_width(GTK_CONTAINER(s.window), 24);
-            GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
-            gtk_container_add(GTK_CONTAINER(s.window), box);
-            s.label = gtk_label_new("Preparing launcher…");
-            gtk_label_set_line_wrap(GTK_LABEL(s.label), TRUE);
-            s.progress = gtk_progress_bar_new();
-            s.button = gtk_button_new_with_label("Cancel");
-            gtk_box_pack_start(GTK_BOX(box), s.label, TRUE, TRUE, 0);
-            gtk_box_pack_start(GTK_BOX(box), s.progress, FALSE, TRUE, 0);
-            gtk_box_pack_start(GTK_BOX(box), s.button, FALSE, FALSE, 0);
-            g_signal_connect(s.button, "clicked", G_CALLBACK(cancel_clicked), &s);
-            g_signal_connect(s.window, "delete-event", G_CALLBACK(close_requested), &s);
-            gtk_widget_show_all(s.window);
+            setup_window(&s, steam_running_in("/proc", geteuid()));
             guint timer = g_timeout_add(150, progress_tick, &s);
             GTask *task = g_task_new(NULL, s.cancel, completed, &s);
             g_task_set_task_data(task, &s, NULL);

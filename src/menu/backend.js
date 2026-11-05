@@ -331,6 +331,8 @@
       return {...result, steamShortcut: await registerSteam(progress)};
     }),
     addToSteam: progress => exclusive(() => registerSteam(progress)),
+    hudStatus: () => steamShortcut.hudStatus(),
+    hudSet: (enabled, expected) => exclusive(() => steamShortcut.hudSet(enabled, expected)),
     finishSetup: progress => exclusive(async () => {
       if (!setup.getContext()) return {skipped: true, deferred: true};
       try { if (!pendingShortcutToken()) return {skipped: true}; }

@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const http = require('node:http');
+const {EventEmitter} = require('node:events');
 const {createSteamShortcut} = require('../src/steam-shortcut.cjs');
 
 (async () => {
@@ -38,7 +40,12 @@ const {createSteamShortcut} = require('../src/steam-shortcut.cjs');
       SetShortcutName(id, value) { calls.push({method: 'name', id, value}); if (!state.ignoreName) details.get(id).strDisplayName = value; },
       SetShortcutExe(id, value) { calls.push({method: 'exe', id, value}); details.get(id).strShortcutExe = value; },
       SetShortcutStartDir(id, value) { calls.push({method: 'start', id, value}); if (state.failStartDir) throw new Error('fixture start-dir failure'); details.get(id).strShortcutStartDir = value; },
-      SetShortcutLaunchOptions(id, value) { calls.push({method: 'options', id, value}); details.get(id).strShortcutLaunchOptions = value; },
+      SetShortcutLaunchOptions(id, value) {
+        calls.push({method: 'options', id, value});
+        if (state.failOptions) throw new Error('fixture launch-options failure');
+        if (!state.ignoreOptions) details.get(id).strShortcutLaunchOptions = value;
+        if (state.switchOnOptions) login.accountName = 'another-account';
+      },
       SpecifyCompatTool(id, value) { calls.push({method: 'compat', id, value}); details.get(id).strCompatToolName = value; },
       async SetCustomArtworkForApp(id, data, extension, assetType) {
         calls.push({method: 'art', id, data, extension, assetType});
@@ -281,6 +288,158 @@ const {createSteamShortcut} = require('../src/steam-shortcut.cjs');
       await assert.rejects(f.create({evaluate: async () => { throw new Error('Steam unavailable'); }}).remove(), /Steam unavailable/);
       assert.equal(f.calls.length, 0); assert.equal((await fs.stat(f.exe)).isFile(), true);
       passed.push('Disconnected Steam throws even for no known matches; no local file removal occurs');
+    }
+    const defaultOptions = '/usr/libexec/armada/armada-game-launch %command%';
+    const hudOptions = 'MANGOHUD_CONFIGFILE=/dev/null MANGOHUD_CONFIG=preset=2,no_display=0,position=bottom-right,font_size=18 mangohud '+defaultOptions;
+    const reviewed = status => ({token:status.token, expectedLaunchOptions:status.launchOptions});
+    {
+      const f=await fixture(), api=f.create();f.add(3000000200,f.exe,{name:'Custom display name',options:defaultOptions});
+      const status=await api.hudStatus();
+      assert.equal(status.supported,true);assert.equal(status.enabled,false);assert.equal(status.launchOptions,defaultOptions);
+      assert.equal(status.manualLaunchOptions,hudOptions);assert.equal(f.calls.length,0);
+      const result=await api.hudSet(true,reviewed(status));
+      assert.equal(result.enabled,true);assert.equal(result.changed,true);assert.equal(result.launchOptions,hudOptions);
+      assert.deepEqual(f.calls,[{method:'options',id:3000000200,value:hudOptions}]);
+      assert.equal(f.details.get(3000000200).strDisplayName,'Custom display name');
+      assert.equal(f.details.get(3000000200).controllerMapping,'custom-mapping-retained');
+      const off=await api.hudSet(false,reviewed(result));assert.equal(off.enabled,false);assert.equal(off.launchOptions,defaultOptions);
+      assert.equal(f.calls.length,2);assert.equal(f.calls.at(-1).value,defaultOptions);
+      passed.push('HUD status is read-only; enable writes the exact preset line and disable preserves the Armada wrapper and unrelated shortcut settings');
+    }
+    {
+      for(const options of ['', 'mangohud '+defaultOptions, 'MANGOHUD_CONFIG=preset=2,no_display=0,position=bottom-right,font_size=18 mangohud '+defaultOptions]){
+        const f=await fixture(),api=f.create();f.add(3000000201,f.exe,{options});
+        const status=await api.hudStatus();assert.equal(status.supported,true);
+        const result=await api.hudSet(true,reviewed(status));assert.equal(result.launchOptions,hudOptions);assert.equal(f.calls.length,1);
+      }
+      passed.push('Empty native options and exact older MangoHud forms upgrade to the requested line without renderer overrides');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000202,f.exe,{options:hudOptions});
+      const status=await api.hudStatus(),result=await api.hudSet(true,reviewed(status));
+      assert.equal(status.enabled,true);assert.equal(result.changed,false);assert.equal(f.calls.length,0);
+      passed.push('An already matching HUD line is verified without an unnecessary setter');
+    }
+    {
+      for(const options of [defaultOptions+' --use-angle=vulkan', 'env MESA_LOADER_DRIVER_OVERRIDE=zink '+defaultOptions,
+        'MANGOHUD_CONFIG=custom mangohud '+defaultOptions, hudOptions+'; echo custom']){
+        const f=await fixture(),api=f.create();f.add(3000000203,f.exe,{options});const status=await api.hudStatus();
+        assert.equal(status.supported,false);assert.equal(status.token,null);assert.equal(status.launchOptions,options);
+        assert.match(status.reason,/Custom launch options/);assert.equal(status.manualLaunchOptions,hudOptions);
+        await assert.rejects(api.hudSet(true,{token:'made-up',expectedLaunchOptions:options}),/changed or expired/);
+        assert.equal(f.details.get(3000000203).strShortcutLaunchOptions,options);assert.equal(f.calls.length,0);
+      }
+      passed.push('Renderer overrides and all unknown custom launch options remain byte-identical and block automatic HUD changes');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000204,f.exe,{local:false});
+      f.map.get(3000000204).local_per_client_data={clientid:'remote',installed:true};
+      let status=await api.hudStatus();assert.equal(status.installed,false);assert.equal(status.supported,false);assert.match(status.reason,/Add this launcher/);
+      f.add(3000000205,f.exe);f.add(3000000206,'"'+f.exe+'"');status=await api.hudStatus();
+      assert.equal(status.supported,false);assert.match(status.reason,/More than one/);assert.equal(f.calls.length,0);
+      passed.push('HUD control never creates an entry or treats remote-only or duplicate entries as one owned local shortcut');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000207,f.exe);delete f.apps.SetShortcutLaunchOptions;
+      let status=await api.hudStatus();assert.equal(status.supported,false);assert.match(status.reason,/manually/);
+      f.login.loginState=0;status=await api.hudStatus();assert.equal(status.available,false);assert.equal(status.supported,false);assert.match(status.reason,/login/);assert.equal(f.calls.length,0);
+      passed.push('Missing Steam setter and signed-out status are visible and read-only');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000208,f.exe);const status=await api.hudStatus();
+      for(const [enabled,review] of [['true',reviewed(status)],[true,{token:123,expectedLaunchOptions:''}],
+        [true,{token:status.token,expectedLaunchOptions:null}],[true,{token:'wrong',expectedLaunchOptions:''}]]){
+        await assert.rejects(api.hudSet(enabled,review));assert.equal(f.calls.length,0);
+      }
+      await api.hudStatus();await assert.rejects(api.hudSet(true,reviewed(status)),/changed or expired/);assert.equal(f.calls.length,0);
+      passed.push('Invalid Boolean/token/options types and superseded review tokens fail without mutation');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000209,f.exe);const status=await api.hudStatus();
+      f.details.get(3000000209).strShortcutLaunchOptions='custom options added after review';
+      await assert.rejects(api.hudSet(true,reviewed(status)),/changed/);assert.equal(f.calls.length,0);
+      assert.equal(f.details.get(3000000209).strShortcutLaunchOptions,'custom options added after review');
+      passed.push('Launch options changed after review are preserved and invalidate Apply');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000210,f.exe);const status=await api.hudStatus();
+      f.login.accountName='another-account';await assert.rejects(api.hudSet(true,reviewed(status)),/login changed/);assert.equal(f.calls.length,0);
+      passed.push('Steam account changes after HUD review block the setter entirely');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000211,f.exe);const status=await api.hudStatus();
+      f.map.delete(3000000211);f.details.delete(3000000211);f.add(3000000212,f.exe);
+      await assert.rejects(api.hudSet(true,reviewed(status)),/changed/);assert.equal(f.calls.length,0);
+      passed.push('A replacement shortcut at the same executable cannot inherit an earlier HUD approval');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000213,f.exe);const status=await api.hudStatus();
+      const original=f.apps.RegisterForAppDetails;let reads=0;
+      f.apps.RegisterForAppDetails=(id,callback)=>{if(++reads===2)f.details.get(id).strShortcutLaunchOptions='late edit';return original(id,callback);};
+      await assert.rejects(api.hudSet(true,reviewed(status)),/Nothing was overwritten/);assert.equal(f.calls.length,0);
+      passed.push('HUD options are checked again immediately before the Steam setter');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000214,f.exe);f.state.ignoreOptions=true;f.state.timerScale=.01;
+      await assert.rejects(api.hudSet(true,reviewed(await api.hudStatus())),error=>{assert.equal(error.uncertain,true);return /did not confirm/.test(error.message);});
+      const status=await api.hudStatus();assert.equal(status.supported,false);assert.equal(status.uncertain,true);assert.match(status.reason,/could not be verified/);
+      await assert.rejects(api.hudSet(true,{token:'retry',expectedLaunchOptions:''}),/close and reopen/);assert.equal(f.calls.length,1);
+      passed.push('Acknowledged but unchanged Steam readback fails visibly and blocks another unverified write in this launcher session');
+    }
+    {
+      const f=await fixture(),api=f.create();f.add(3000000215,f.exe);f.state.switchOnOptions=true;
+      await assert.rejects(api.hudSet(true,reviewed(await api.hudStatus())),error=>{assert.equal(error.uncertain,true);return /login changed/.test(error.message);});
+      assert.equal(f.calls.length,1);assert.equal(f.calls[0].method,'options');
+      passed.push('An account switch after the setter prevents a successful HUD result and further mutation');
+    }
+    {
+      const f=await fixture();f.add(3000000217,f.exe);let statusReads=0;
+      const api=f.create({evaluate:expression=>{
+        if(expression.includes('"action":"hud-status"')&&++statusReads===2)f.login.accountName='different-final-account';
+        return f.evaluate(expression);
+      }});
+      await assert.rejects(api.hudSet(true,reviewed(await api.hudStatus())),/before final verification/);
+      assert.equal(f.calls.length,1);assert.equal(f.calls[0].value,hudOptions);
+      passed.push('Account changes only during final status readback cannot report a successful update for another Steam login');
+    }
+    {
+      const f=await fixture();f.add(3000000218,f.exe);
+      const originalGet=http.get;
+      http.get=(_url,_options,callback)=>{
+        const request=new EventEmitter();request.destroy=error=>request.emit('error',error);
+        queueMicrotask(()=>{
+          const response=new EventEmitter();response.statusCode=200;response.setEncoding=()=>{};response.resume=()=>{};
+          callback(response);response.emit('data',JSON.stringify([{title:'SharedJSContext',webSocketDebuggerUrl:'ws://127.0.0.1:8080/mock'}]));response.emit('end');
+        });
+        return request;
+      };
+      class FakeSocket {
+        constructor(){this.handlers={};queueMicrotask(()=>this.handlers.open?.({}));}
+        addEventListener(type,callback){this.handlers[type]=callback;}
+        close(){}
+        send(raw){
+          const expression=JSON.parse(raw).params.expression;
+          Promise.resolve(f.evaluate(expression)).then(value=>this.handlers.message({data:expression.includes('"action":"hud-set"')?
+            '{broken response':JSON.stringify({id:1,result:{result:{value}}})}));
+        }
+      }
+      try {
+        const api=f.create({evaluate:undefined,WebSocket:FakeSocket});
+        await assert.rejects(api.hudSet(true,reviewed(await api.hudStatus())),error=>error.uncertain===true);
+        assert.equal(f.calls.length,1);assert.equal(f.details.get(3000000218).strShortcutLaunchOptions,hudOptions);
+        const status=await api.hudStatus();assert.equal(status.uncertain,true);assert.equal(status.supported,false);
+        assert.match(status.reason,/could not be verified/);
+      } finally {http.get=originalGet;}
+      passed.push('Malformed CDP response after a completed setter is marked uncertain by the real transport parser and blocks another write');
+    }
+    {
+      const f=await fixture();f.add(3000000216,f.exe);let finish;
+      const api=f.create({evaluate:expression=>expression.includes('"action":"hud-set"')?new Promise(resolve=>{finish=()=>resolve(f.evaluate(expression));}):f.evaluate(expression)});
+      const status=await api.hudStatus(),pending=api.hudSet(true,reviewed(status));
+      while(!finish)await new Promise(resolve=>setImmediate(resolve));
+      await assert.rejects(api.hudSet(false,reviewed(status)),/already in progress/);finish();await pending;
+      assert.equal(f.calls.length,1);
+      passed.push('Overlapping HUD updates are blocked while one Steam mutation is pending');
     }
     console.log(JSON.stringify({passed, scope: 'Disposable files and VM-executed real CDP expression against mock Steam APIs; no running Steam, network, games or real shortcuts'}, null, 2));
   } finally { await fs.rm(temporary, {recursive: true, force: true}); }

@@ -12,7 +12,8 @@ const passed = [];
 function fixture(factory=createControllerEmulation) {
   const calls=[];
   const state={configured:'ds5', deviceEnv:'ARMADA_IP_TARGETS=deck-uhid\\,xbox-series\\,xb360\\,ds5\n',
-    targets:[{path:PREFIX+'/CompositeDevice0',types:['ds5','keyboard','mouse']}], active:false, apply:null, fail:null};
+    targets:[{path:PREFIX+'/CompositeDevice0',types:['ds5','keyboard','mouse']}], active:false, apply:null, fail:null,
+    sessionLoad:'loaded', sessionActive:'inactive', env:{XDG_CURRENT_DESKTOP:'KDE'}};
   function apply(value) {
     state.configured=value;
     state.targets=state.targets.map(item=>({...item,types:[value,...item.types.filter(type=>['keyboard','mouse'].includes(type))]}));
@@ -20,6 +21,10 @@ function fixture(factory=createControllerEmulation) {
   async function run(file,args,options) {
     calls.push({file,args,options});
     if(state.fail) await state.fail(file,args);
+    if(file.endsWith('/systemctl')) {
+      assert.deepEqual(Array.from(args),['--user','--no-pager','show','gamescope-session-plus@steam.service','--property=LoadState','--property=ActiveState']);
+      return {stdout:`LoadState=${state.sessionLoad}\nActiveState=${state.sessionActive}\n`};
+    }
     if(file.endsWith('/controller-type'))return {stdout:state.configured+'\n'};
     if(file.endsWith('/device-env'))return {stdout:state.deviceEnv};
     if(file.endsWith('/pkexec')) {
@@ -39,13 +44,71 @@ function fixture(factory=createControllerEmulation) {
     const index=Number(object.split('Target').at(-1));
     return {stdout:JSON.stringify({type:'s',data:entry.types[index]})};
   }
-  return {state,calls,run,apply,api:factory({run,isBusy:()=>state.active}),writes:()=>calls.filter(call=>call.file.endsWith('/pkexec'))};
+  return {state,calls,run,apply,api:factory({run,isBusy:()=>state.active,getEnvironment:()=>state.env}),writes:()=>calls.filter(call=>call.file.endsWith('/pkexec'))};
 }
 async function test(name,run){await run();passed.push(name);}
 (async()=>{
   await test('Construction does not read or modify controller state; status retains current DualSense',async()=>{
     const f=fixture();assert.equal(f.calls.length,0);const value=await f.api.status();
     assert.equal(value.available,true);assert.equal(value.configured,'ds5');assert.equal(value.live,'ds5');assert.deepEqual(value.supported,['deck-uhid','xb360']);assert.equal(f.writes().length,0);
+    assert.equal(value.session,'desktop');assert.equal(value.sessionSource,'systemd');assert.equal(value.sessionReason,'');
+  });
+  await test('Gaming Mode blocks authorization while preserving configured and live readback',async()=>{
+    const f=fixture();f.state.sessionActive='active';
+    const value=await f.api.status();assert.equal(value.session,'gaming');assert.equal(value.sessionSource,'systemd');
+    assert.equal(value.available,false);assert.equal(value.configured,'ds5');assert.equal(value.live,'ds5');
+    assert.equal(value.reason,'Use Armada Control in Gaming Mode. Switch to Desktop Mode to change this setting here.');
+    await assert.rejects(f.api.set('xb360'),error=>error.state.session==='gaming'&&error.message===value.reason);
+    f.apply('xb360');await assert.rejects(f.api.set('xb360'),/Use Armada Control in Gaming Mode/);
+    assert.equal(f.writes().length,0);
+  });
+  await test('Gaming session transitions block mutation before pkexec',async()=>{
+    for(const active of ['activating','reloading','deactivating']) {
+      const f=fixture();f.state.sessionActive=active;
+      assert.equal((await f.api.status()).session,'gaming');
+      await assert.rejects(f.api.set('deck-uhid'),/Use Armada Control in Gaming Mode/);assert.equal(f.writes().length,0);
+    }
+  });
+  await test('Authoritative Armada unit state wins over stale environment in either direction',async()=>{
+    const f=fixture();f.state.env={XDG_CURRENT_DESKTOP:'gamescope',XDG_SESSION_DESKTOP:'gamescope'};
+    assert.equal((await f.api.status()).session,'desktop');assert.equal((await f.api.set('xb360')).changed,true);
+    const g=fixture();g.state.sessionActive='active';g.state.env={XDG_CURRENT_DESKTOP:'KDE'};
+    await assert.rejects(g.api.set('xb360'),/Gaming Mode/);assert.equal(g.writes().length,0);
+  });
+  await test('KDE fallback ignores stale Gamescope session names and Steam Big Picture flags',async()=>{
+    const f=fixture();f.state.sessionLoad='not-found';
+    f.state.env={XDG_CURRENT_DESKTOP:'KDE',XDG_SESSION_DESKTOP:'gamescope',DESKTOP_SESSION:'gamescope-wayland',SteamDeck:'1',STEAM_GAMEPADUI:'1'};
+    const value=await f.api.status();assert.equal(value.session,'desktop');assert.equal(value.sessionSource,'environment');
+    assert.equal((await f.api.set('xb360')).changed,true);assert.equal(f.writes().length,1);
+  });
+  await test('Explicit Gamescope fallback blocks without a user systemd bus',async()=>{
+    for(const env of [{XDG_CURRENT_DESKTOP:'gamescope'}, {XDG_CURRENT_DESKTOP:'gamescope:KDE'},
+      {XDG_SESSION_DESKTOP:'gamescope'}, {DESKTOP_SESSION:'gamescope-wayland'}]) {
+      const f=fixture();f.state.env=env;
+      f.state.fail=file=>{if(file.endsWith('/systemctl'))throw Error('User bus unavailable');};
+      const value=await f.api.status();assert.equal(value.session,'gaming');assert.equal(value.sessionSource,'environment');
+      await assert.rejects(f.api.set('xb360'),/Gaming Mode/);assert.equal(f.writes().length,0);
+    }
+  });
+  await test('Unknown sessions stay readable but cannot change controllers',async()=>{
+    for(const env of [{}, {SteamDeck:'1',STEAM_GAMEPADUI:'1'}, {XDG_CURRENT_DESKTOP:'unrecognized',XDG_SESSION_DESKTOP:'plasma'}]) {
+      const f=fixture();f.state.sessionLoad='not-found';f.state.env=env;
+      const value=await f.api.status();assert.equal(value.session,'unknown');assert.equal(value.available,false);assert.equal(value.configured,'ds5');
+      await assert.rejects(f.api.set('xb360'),/session could not be checked/);assert.equal(f.writes().length,0);
+    }
+  });
+  await test('Session is rechecked immediately before authorization after a Desktop preflight',async()=>{
+    const f=fixture();let checks=0;
+    const api=createControllerEmulation({run:f.run,getEnvironment:()=>f.state.env,isBusy:()=>{
+      if(++checks===2)f.state.sessionActive='active';return false;
+    }});
+    await assert.rejects(api.set('xb360'),error=>error.state.session==='gaming'&&/Use Armada Control/.test(error.message));
+    assert.equal(f.writes().length,0);assert.equal(f.state.configured,'ds5');
+  });
+  await test('Returning to Desktop restores availability without automatic controller changes',async()=>{
+    const f=fixture();f.state.sessionActive='active';assert.equal((await f.api.status()).available,false);
+    f.state.sessionActive='inactive';assert.equal((await f.api.status()).available,true);assert.equal(f.writes().length,0);
+    assert.equal((await f.api.set('xb360')).changed,true);assert.equal(f.writes().length,1);
   });
   await test('Only advertised allowed choices are exposed, including escaped device-env commas',async()=>{
     const f=fixture();f.state.deviceEnv='ARMADA_IP_TARGETS=deck-uhid\\,ds5\n';assert.deepEqual((await f.api.status()).supported,['deck-uhid']);
