@@ -9,7 +9,7 @@ The full game runs on KPFE (Snapdragon 8 Elite) with native ARM64 NW.js.
 - Manual Cloud upload completed, with the uploaded saves matching the ARM64 profile, Steam folder and Cloud cache.
 - Xbox 360 controller emulation works in Desktop Mode, in both the launcher and game. The setting survives a reboot. Both Steam Deck and Xbox 360 emulation work in Gaming Mode; use Armada Control to switch there.
 
-Gameplay was smooth, with no stutters during testing. The heaviest scene tested ran at **72 FPS / 13.9 ms at 720p**, in Balanced mode with underclocking and the GPU capped at **760 MHz**. Temperatures were **59°C GPU and 61°C CPU**.
+Gameplay was smooth, with no stutters during testing. The heaviest scene tested ran at **72 FPS / 13.9 ms at 720p**, in Balanced mode with medium underclock and the GPU capped at **760 MHz**. Temperatures were **59°C GPU and 61°C CPU**.
 
 ## Build
 
