@@ -6,10 +6,10 @@ Inspired by the Android wrappers [alabaster-android](https://github.com/moronigr
 
 ## Install
 
-1. Switch to **Desktop Mode**, open Steam and install the full game's **Linux version**. Installing the game in Gaming Mode also works; open Steam in Desktop Mode before continuing.
+1. Install the full game’s **Linux version** through Steam in either **Gaming Mode** or **Desktop Mode**. Before installing the launcher, switch to **Desktop Mode** and open Steam.
 2. Download and extract **Alabaster-Dawn-Setup-linux-arm64.tar.gz** from [Releases](https://github.com/mrdidit/alabaster-arm64/releases).
 3. Open **Alabaster-Dawn-Setup.arm64**. Setup and the launcher open maximized. If Steam is closed, choose **Start Steam**, **Continue without Steam** or **Cancel**. Setup downloads and checks the required runtime automatically.
-4. Choose **Install**, confirm the detected game folder, then **Play Alabaster Dawn**.
+4. Choose **Install** and confirm the detected game folder. You can then return to **Gaming Mode** to **Play Alabaster Dawn**, or play directly in **Desktop Mode**. To play in Desktop Mode, first select and authorise **Xbox 360 controller emulation** in the launcher’s **Options**.
 
 Keep Steam open to add the ARM64 library entry and artwork. Setup also creates desktop and application-menu entries. Installation can continue without Steam; follow the warning and use **Options → Add / update Steam entry** once Steam is open. After setup, play from either mode.
 
