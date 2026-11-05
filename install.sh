@@ -8,6 +8,50 @@ main() {
   local temporary='' gui_pid='' status=0
 
   fail() { printf 'Alabaster: %s\n' "$*" >&2; exit 1; }
+  discover_desktop() {
+    # Read the login user's desktop environment, never another account's session.
+    # NUL-delimited values are data: no sourcing or evaluation of shell expressions.
+    command -v pgrep >/dev/null || fail 'Desktop discovery needs pgrep. Run from a desktop terminal instead.'
+    local pid entry key value signature selected_signature='' display_number
+    local -a keys=(DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+                   XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP)
+    local -A candidate=() selected=()
+    while read -r pid; do
+      [[ $pid =~ ^[0-9]+$ && -O /proc/$pid && -r /proc/$pid/environ ]] || continue
+      candidate=()
+      while IFS= read -r -d '' entry; do
+        key=${entry%%=*}
+        case $key in
+          DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP|XDG_SESSION_DESKTOP)
+            candidate[$key]=${entry#*=} ;;
+        esac
+      done < /proc/"$pid"/environ 2>/dev/null || continue
+      # NW.js needs X11/Xwayland, even when setup uses native Wayland.
+      [[ ${candidate[DISPLAY]:-} =~ ^(:|unix:)([0-9]+)(\.[0-9]+)?$ ]] || continue
+      display_number=${BASH_REMATCH[2]}
+      [[ -S /tmp/.X11-unix/X$display_number ]] || continue
+      [[ -z ${candidate[XAUTHORITY]:-} || -r ${candidate[XAUTHORITY]} ]] || continue
+      [[ -z ${candidate[XDG_RUNTIME_DIR]:-} || ( -d ${candidate[XDG_RUNTIME_DIR]} && -O ${candidate[XDG_RUNTIME_DIR]} ) ]] || continue
+      if [[ -n ${candidate[WAYLAND_DISPLAY]:-} ]]; then
+        value=${candidate[WAYLAND_DISPLAY]}
+        [[ $value == /* ]] || value=${candidate[XDG_RUNTIME_DIR]:-}/$value
+        [[ -S $value && -O $value ]] || continue
+      fi
+      signature=''
+      for key in "${keys[@]}"; do signature+=$(printf '%q|' "${candidate[$key]:-}"); done
+      [[ -z $selected_signature || $signature == "$selected_signature" ]] ||
+        fail 'More than one desktop session was found. Run the command in the intended desktop terminal.'
+      selected_signature=$signature
+      for key in "${keys[@]}"; do selected[$key]=${candidate[$key]:-}; done
+    done < <(pgrep -u "$EUID" -x 'plasmashell|gnome-shell|xfce4-session|cinnamon|mate-session|lxqt-session|sway|Hyprland|weston|enlightenment' || true)
+    [[ -n ${selected[DISPLAY]:-} ]] ||
+      fail 'No usable desktop session was found for this account. Sign into Desktop Mode on the device, then retry; if detection is unavailable, run from its desktop terminal.'
+    for key in "${keys[@]}"; do
+      unset "$key"
+      [[ -z ${selected[$key]} ]] || export "$key=${selected[$key]}"
+    done
+    printf 'Desktop session found; setup will open on the device. Keep this terminal connected until setup closes.\n'
+  }
   cleanup() {
     if [[ -n "$gui_pid" ]]; then kill "$gui_pid" 2>/dev/null || true; fi
     if [[ -n "$temporary" ]]; then rm -rf -- "$temporary"; fi
@@ -20,7 +64,7 @@ main() {
   [[ $(uname -s) == Linux ]] || fail 'This installer requires Linux.'
   case $(uname -m) in aarch64|arm64) ;; *) fail 'This installer requires an ARM64 device.' ;; esac
   [[ $EUID != 0 ]] || fail 'Run this installer as your normal desktop user, without sudo.'
-  [[ -n ${DISPLAY:-} || -n ${WAYLAND_DISPLAY:-} ]] || fail 'Open a terminal in Desktop Mode, then run the install command again.'
+  if [[ -z ${DISPLAY:-} && -z ${WAYLAND_DISPLAY:-} ]]; then discover_desktop; fi
   local command
   for command in curl sha256sum tar mktemp chmod rm; do
     command -v "$command" >/dev/null || fail "Required command not found: $command"

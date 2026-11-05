@@ -13,13 +13,13 @@ Inspired by the Android wrappers [alabaster-android](https://github.com/moronigr
 
 Keep Steam open to add the ARM64 library entry and artwork. Setup also creates desktop and application-menu entries. Installation can continue without Steam; follow the warning and use **Options → Add / update Steam entry** once Steam is open. After setup, play from either mode.
 
-Or open a terminal in Desktop Mode and run:
+Or run in a desktop terminal, or over SSH as the same user signed into the device's desktop:
 
 ```sh
 curl -fsSL https://github.com/mrdidit/alabaster-arm64/releases/download/v0.5.2/install.sh | bash
 ```
 
-This verifies the download and opens the same setup app. No `sudo` is needed.
+This verifies the download and opens the same setup app. Over SSH, setup appears on the device's desktop; keep the terminal connected until setup closes. Automatic discovery supports Armada's KDE desktop and common Linux desktops with X11/Xwayland. If no suitable session is found, run the command in a desktop terminal. No `sudo` is needed.
 
 ## Features
 

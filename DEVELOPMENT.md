@@ -43,6 +43,7 @@ The menu checks cover the interface, not native window sizing. Maximized startup
 
 ## Still to test
 
+- Opening setup on the desktop from a phone's SSH session with the updated curl installer.
 - Downloading different Cloud saves into the ARM64 profile and loading that progress in-game.
 - Recovery when a save or Cloud operation is interrupted.
 - v0.5.2 on other devices and Steam accounts.

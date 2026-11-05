@@ -4,6 +4,7 @@ Run the installed Steam Linux version of Alabaster Dawn through native ARM64 NW.
 
 - Maximized setup and launcher windows, with normal title bars in Desktop Mode.
 - Manual download or a curl installer that verifies the release archive and opens the same setup app.
+- Updated curl installer: SSH launches can find the same user's desktop session and open setup on the device. The v0.5.2 setup application is unchanged.
 - A persistent **Start Steam / Continue without Steam / Cancel** prompt before setup when Steam is closed.
 - Complete uninstall includes recognized old ARM64 shortcuts and bundled attribution files. Original game files, saves and backups remain untouched.
 - Uninstall errors stay visible on a dedicated screen instead of returning to Options with a footer message.
@@ -18,6 +19,8 @@ Or run:
 ```sh
 curl -fsSL https://github.com/mrdidit/alabaster-arm64/releases/download/v0.5.2/install.sh | bash
 ```
+
+For SSH installation, use the same account signed into Desktop Mode. Setup opens on the device; keep the terminal connected until it closes.
 
 Live v0.5.2 checks passed installation, maximized windows, the Steam-start prompt and complete uninstall.
 
